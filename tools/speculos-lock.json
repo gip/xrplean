@@ -1,0 +1,17 @@
+{
+  "source_url": "https://github.com/LedgerHQ/app-xrp.git",
+  "source_revision": "7b5185ff09b4b3d15df242b156a6aaadfc99f555",
+  "app_version": "2.8.2",
+  "image": "ghcr.io/ledgerhq/ledger-app-builder/ledger-app-dev-tools@sha256:e31031ea60f4037b1750d6d34e326a58ebb1c5718b606959998996fe2af69e0e",
+  "platform": "linux/arm64",
+  "sdk": "/opt/nanosplus-secure-sdk",
+  "sdk_revision": "33323fcc80619226f06b9d426dccaa5f4755efec",
+  "api_level": 27,
+  "speculos_version": "0.27.1",
+  "model": "nanosp",
+  "elf_path": "build/nanos2/bin/app.elf",
+  "elf_sha256": "5754e9e12eae7306132605725b586b6a1a0099292fac6b3159fc554f7725aa4d",
+  "derivation_path": "44'/144'/0'/0/0",
+  "test_address": "ra7Zr8ddy9tB88RaXL8B87YkqhEJG2vkAJ",
+  "seed": "Speculos built-in public test seed; never use for funds"
+}

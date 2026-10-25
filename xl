@@ -1,0 +1,30 @@
+#!/bin/sh
+# One entry point for the Lean CLI and its local backend.
+set -eu
+XL_PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$XL_PROJECT_ROOT"
+case "${1:-}" in
+  speculos)
+    shift
+    exec python3 "$XL_PROJECT_ROOT/tools/speculos.py" "$@"
+    ;;
+  ui)
+    shift
+    if [ ! -d "$XL_PROJECT_ROOT/frontend/node_modules" ]; then
+      echo 'Install UI dependencies first: pnpm --dir frontend install --frozen-lockfile' >&2
+      exit 1
+    fi
+    exec node "$XL_PROJECT_ROOT/frontend/server.ts" "$@"
+    ;;
+  start|restart)
+    lake -q build xlb xlc >&2
+    exec python3 "$XL_PROJECT_ROOT/tools/backend.py" "$@"
+    ;;
+  stop|status)
+    exec python3 "$XL_PROJECT_ROOT/tools/backend.py" "$@"
+    ;;
+  *)
+    lake -q build xlb xlc >&2
+    exec "$XL_PROJECT_ROOT/.lake/build/bin/xlc" "$@"
+    ;;
+esac

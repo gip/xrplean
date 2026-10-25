@@ -1,0 +1,154 @@
+{
+  "recorded_utc": "2026-10-25T03:28:16.331932+00:00",
+  "cause": {
+    "task_id": "2",
+    "request_transport": "auto",
+    "configured_peer": null,
+    "rpc_advertised_peer": "127.0.0.1:2459"
+  },
+  "ledger_index": 107883771,
+  "ledger_hash": "973870FF512D0C2C152663FA153A5D7DB916249ADBC51804122E2FF9839DE793",
+  "state_root": "F9B1038B170488988030DDB5F6AE85D5C0D0E3B6E0CA26DC2C34EC0EADDD0307",
+  "completion_task": "7",
+  "state_backend": "nudb",
+  "acquisition_transport": "peer",
+  "trust": "untrusted",
+  "entries": 20120883,
+  "nodes": 28510417,
+  "final_resumed_run_metrics": {
+    "base_ledger_hash": null,
+    "elapsed_ms": 482511,
+    "entries": 20120883,
+    "incremental": false,
+    "local_ms": 440251,
+    "nodes": 28510417,
+    "received_overlay_bytes": 1351024765,
+    "requests": 1738,
+    "reused_subtrees": 0,
+    "stored_node_bytes": 5743451151
+  },
+  "original_rpc_sample": {
+    "entries": 7657472,
+    "pages": 3739,
+    "elapsed_s": 1759,
+    "rpc_s": 884.4,
+    "local_s": 863.6,
+    "entries_per_s": 4352,
+    "keyspace_percent": 37.8
+  },
+  "peer_attempt_history": [
+    {
+      "task_id": "3",
+      "retry_of": "2",
+      "status": "interrupted",
+      "started_at": "2026-10-25 02:54:27",
+      "finished_at": "2026-10-25 02:59:37",
+      "entries": 5404483,
+      "checkpoint_entries": 0,
+      "elapsed_ms": 309158
+    },
+    {
+      "task_id": "4",
+      "retry_of": "3",
+      "status": "interrupted",
+      "started_at": "2026-10-25 02:59:38",
+      "finished_at": "2026-10-25 03:04:14",
+      "entries": 8950262,
+      "checkpoint_entries": 5410968,
+      "elapsed_ms": 274781
+    },
+    {
+      "task_id": "5",
+      "retry_of": "4",
+      "status": "interrupted",
+      "started_at": "2026-10-25 03:04:14",
+      "finished_at": "2026-10-25 03:14:07",
+      "entries": 14442290,
+      "checkpoint_entries": 8968232,
+      "elapsed_ms": 590140
+    },
+    {
+      "task_id": "6",
+      "retry_of": "5",
+      "status": "interrupted",
+      "started_at": "2026-10-25 03:14:07",
+      "finished_at": "2026-10-25 03:19:37",
+      "entries": 16607019,
+      "checkpoint_entries": 14448332,
+      "elapsed_ms": 328227
+    },
+    {
+      "task_id": "7",
+      "retry_of": "6",
+      "status": "succeeded",
+      "started_at": "2026-10-25 03:19:37",
+      "finished_at": "2026-10-25 03:27:40",
+      "entries": 20120883,
+      "checkpoint_entries": 16615525,
+      "elapsed_ms": 482506
+    }
+  ],
+  "measurement_method": "Same exact ledger and one shared resumable peer store across development builds. The final run resumes a large checkpoint. This is not a fresh full-sync latency comparison.",
+  "xrpld_10_to_15_minute_parity_demonstrated": false,
+  "host_observations": {
+    "memory_bytes": 38654705664,
+    "swap_used_mib": 16480.56,
+    "disk_volume_gib": 926,
+    "disk_available_gib": 24,
+    "disk_used_percent": 98,
+    "remaining_sample": "Dominated by fsync, pread and pwrite; over 90 percent local processing time."
+  },
+  "deployed_xlb_sha256": "b1e7b3ecc338d16050e87b23dbda803b67c7eee9be688d27d7f51de1cb37bc56",
+  "validation": {
+    "independent_header_sha512half_and_state_root": "pass",
+    "lake_build": "pass",
+    "lean_toolchain": "4.34.1",
+    "test_suites": [
+      "integration",
+      "acquisition",
+      "peer_acquisition",
+      "resume",
+      "progress",
+      "tasks",
+      "rpc_backoff",
+      "incremental",
+      "state_tree",
+      "launcher",
+      "cli"
+    ]
+  },
+  "integrity": "Acquisition and runtime root consistency grant neither operator trust nor network consensus evidence nor kernel proof receipts. Regression suites include actual Lean kernel compilation and axiom audits.",
+  "fresh_benchmark": {
+    "status": "stopped_at_user_request",
+    "report_path": "/private/tmp/xl-final-peer-20261025-0328/report.json",
+    "completed": false,
+    "last_committed_progress": {
+      "checkpoint_entries": 0,
+      "elapsed_ms": 640418,
+      "entries": 10582756,
+      "event": "progress",
+      "event_seq": 383,
+      "keyspace_permille": 0,
+      "last_error": "",
+      "ledger_index": 107883771,
+      "ledger_number": 1,
+      "ledgers_total": 1,
+      "local_ms": 538148,
+      "nodes": 15000148,
+      "pages": 0,
+      "peer_ms": 102253,
+      "pending": 31640,
+      "phase": "peer_downloading",
+      "resumed": false,
+      "retry_attempt": 0,
+      "retry_delay_ms": 0,
+      "rpc_ms": 101,
+      "run_elapsed_ms": 640418,
+      "run_entries": 10582756,
+      "state_bytes": 2978228530,
+      "task_id": "1",
+      "transport": "peer"
+    },
+    "note": "Partial run only; no full-sync completion time was measured."
+  }
+}
