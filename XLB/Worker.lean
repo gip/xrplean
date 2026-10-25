@@ -38,7 +38,7 @@ private def runJob (c : Config) (stop : IO.Ref Bool) (id : Nat) (checks : Array 
       if checks.contains (str "payments") then
         exec c s!"INSERT INTO verifications(job_id,export_id,kind,status,report_json,artifacts_json) VALUES({id},{exportId},'payments','running','null','[]')"
         let status ← Proofs.payments c stop id exportId j
-        if !["kernel_checked", "supported_checked", "no_supported_payments"].contains status then
+        if !successfulPaymentStatuses.contains status then
           exec c s!"UPDATE job_items SET status={← quote status},error='Supported Payment verification failed' WHERE job_id={id} AND idx={current}"
           finish c id status "Supported Payment verification failed; proof artifacts retained"
           return

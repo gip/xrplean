@@ -28,6 +28,11 @@ def validBundle (name : String) : Bool :=
 
 def obj := Json.mkObj
 def str := Json.str
+
+/-- Payment attempts accepted by verification jobs, including reported skips. -/
+def successfulPaymentStatuses : List String :=
+  ["kernel_checked", "supported_checked", "no_supported_payments"]
+
 def get (j : Json) (key : String) : IO Json := IO.ofExcept (j.getObjVal? key)
 def string (j : Json) (key : String) : IO String := IO.ofExcept ((j.getObjVal? key).bind Json.getStr?)
 def nat (j : Json) (key : String) : IO Nat := IO.ofExcept ((j.getObjVal? key).bind Json.getNat?)

@@ -27,7 +27,11 @@ export function allowedRoute(method: string, path: string) {
   if (method === "GET" && /^\/(health|status|bundles)$/.test(path)) return true;
   const route = path.replace(/^\/bundles\/[A-Za-z0-9_-]{1,64}(?=\/)/, "");
   return method === "GET"
-    ? /^\/(ledgers|exports|tasks|jobs|state\/info)$/.test(route) ||
+    ? /^\/proofs\/(merkle|payments)$/.test(route) ||
+        /^\/jobs\/[1-9]\d*\/verifications\/[1-9]\d*\/proof(?:\/(?:generated|definition)_[A-Za-z0-9_]+\/\d+)?$/.test(
+          route,
+        ) ||
+        /^\/(ledgers|exports|tasks|jobs|state\/info)$/.test(route) ||
         /^\/(tasks|jobs)\/[1-9]\d*$/.test(route)
     : method === "POST" &&
         (/^\/(tasks|jobs|trust)$/.test(route) ||

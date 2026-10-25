@@ -21,6 +21,7 @@ import { requestFor, type Command } from "./commands.ts";
 import { useIdentity } from "./identity.ts";
 import { usePoll, refresh } from "./usePoll.ts";
 import { useRunningJobs } from "./useRunningJobs.ts";
+import { ProofViewer, ProofPreview, type ProofKind } from "./ProofViewer.tsx";
 
 const short = (value: string) => `${value.slice(0, 10)}…${value.slice(-8)}`;
 const label = (value: string) =>
@@ -29,6 +30,7 @@ const label = (value: string) =>
     supported_checked: "Supported Payments checked",
     no_supported_payments: "No supported Payments",
     operator_trusted: "Trusted",
+    verified_trusted: "Trusted · verified",
     not_checked: "Not checked",
     untrusted: "Not trusted",
     merkle: "Tree",
@@ -121,6 +123,7 @@ function Badge({ value }: { value: string }) {
     "kernel_checked",
     "supported_checked",
     "operator_trusted",
+    "verified_trusted",
   ].includes(value)
     ? "good"
     : ["failed", "unsupported", "blocked", "interrupted", "invalid"].includes(
@@ -199,6 +202,10 @@ export function App() {
   identityRef.current = identity;
   const [selection, setSelection] = useState(readSelection);
   const [review, setReview] = useState<Review>();
+  const [openLedger, setOpenLedger] = useState<string>();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const resultLookup = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => resultLookup.current?.abort(), []);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [message, setMessage] = useState("");
@@ -240,6 +247,7 @@ export function App() {
     };
   }, []);
   function select(update: Partial<Selection>) {
+    resultLookup.current?.abort();
     setSelection((current) => {
       const next = { ...current, ...update };
       const params = new URLSearchParams();
@@ -533,46 +541,69 @@ export function App() {
     }
   }
   function openReview(kind: Review["kind"], ledger: Ledger) {
+    resultLookup.current?.abort();
     setReviewError("");
     setMessage("");
     setReview({ kind, ledger, bundle: selection.bundle });
   }
-  async function showResult(
+  async function findProof(
     ledger: Ledger,
-    kind: "trust" | "merkle" | "payments",
+    kind: ProofKind,
+    signal?: AbortSignal,
   ) {
+    const candidates = (jobs.data ?? [])
+      .filter(
+        (job) =>
+          job.checks.includes(kind) &&
+          Number(job.from) <= Number(ledger.ledger_index) &&
+          Number(job.to) >= Number(ledger.ledger_index),
+      )
+      .sort((a, b) => (BigInt(a.job_id) > BigInt(b.job_id) ? -1 : 1));
+    for (const candidate of candidates) {
+      const detail = await api(
+        `${base}/jobs/${candidate.job_id}`,
+        jobDetailSchema,
+        signal,
+      );
+      const matchingExports = detail.items
+        .filter(
+          (item) =>
+            item.ledger_index === ledger.ledger_index &&
+            exports.data?.some(
+              (variant) =>
+                variant.export_id === item.export_id &&
+                variant.ledger_hash === ledger.ledger_hash,
+            ),
+        )
+        .map((item) => item.export_id);
+      const attempt = detail.verifications.findLast(
+        (attempt) =>
+          attempt.kind === kind && matchingExports.includes(attempt.export_id),
+      );
+      if (attempt)
+        return {
+          job: candidate.job_id,
+          verification: attempt.verification_id,
+          status: attempt.status,
+        };
+    }
+  }
+  async function showResult(ledger: Ledger, kind: "trust" | ProofKind) {
+    resultLookup.current?.abort();
     document.getElementById(`ledger-${ledger.ledger_hash}`)?.showPopover();
     if (kind === "trust") return;
-    const candidates = (jobs.data ?? []).filter(
-      (job) =>
-        job.checks.includes(kind) &&
-        Number(job.from) <= Number(ledger.ledger_index) &&
-        Number(job.to) >= Number(ledger.ledger_index),
-    );
+    const controller = new AbortController();
+    resultLookup.current = controller;
     try {
-      for (const candidate of candidates) {
-        const detail = await api(
-          `${base}/jobs/${candidate.job_id}`,
-          jobDetailSchema,
-        );
-        if (
-          detail.items.some(
-            (item) =>
-              item.ledger_index === ledger.ledger_index &&
-              exports.data?.some(
-                (variant) =>
-                  variant.export_id === item.export_id &&
-                  variant.ledger_hash === ledger.ledger_hash,
-              ),
-          )
-        ) {
-          if (readSelection().bundle === selection.bundle)
-            select({ ledger: ledgerKey(ledger), job: candidate.job_id });
-          return;
-        }
-      }
+      const proof = await findProof(ledger, kind, controller.signal);
+      if (
+        !controller.signal.aborted &&
+        proof &&
+        readSelection().bundle === selection.bundle
+      )
+        select({ ledger: ledgerKey(ledger), job: proof.job });
     } catch (error) {
-      setMessage(errorText(error));
+      if (!controller.signal.aborted) setMessage(errorText(error));
     }
   }
   function fetchIndex() {
@@ -1154,6 +1185,7 @@ export function App() {
                                     : ledger[kind];
                                 const checked =
                                   value === "operator_trusted" ||
+                                  value === "verified_trusted" ||
                                   value === "kernel_checked" ||
                                   value === "supported_checked";
                                 if (
@@ -1171,29 +1203,41 @@ export function App() {
                                       ? "Verify payment"
                                       : "Verify tree";
                                 return (
-                                  <button
+                                  <ProofPreview
                                     key={kind}
-                                    data-check={kind}
-                                    className={`icon-button ${checked ? "checked" : ["failed", "unsupported"].includes(value) ? "failed" : ""}`}
-                                    aria-label={
-                                      checked ? `${title} result` : title
-                                    }
-                                    title={`${title} · ${label(value)}`}
-                                    disabled={
-                                      !checked &&
-                                      (!enabled ||
-                                        (kind !== "trust" &&
-                                          (!variants.length ||
-                                            !!exports.error)))
-                                    }
-                                    onClick={() =>
-                                      checked
-                                        ? void showResult(ledger, kind)
-                                        : openReview(kind, ledger)
+                                    kind={kind}
+                                    base={base}
+                                    status={value}
+                                    resolveAttempt={
+                                      kind === "trust"
+                                        ? undefined
+                                        : (signal) =>
+                                            findProof(ledger, kind, signal)
                                     }
                                   >
-                                    <Icon name={checked ? "check" : kind} />
-                                  </button>
+                                    <button
+                                      data-check={kind}
+                                      className={`icon-button ${checked ? "checked" : ["failed", "unsupported"].includes(value) ? "failed" : ""}`}
+                                      aria-label={
+                                        checked ? `${title} result` : title
+                                      }
+                                      title={`${title} · ${label(value)}`}
+                                      disabled={
+                                        !checked &&
+                                        (!enabled ||
+                                          (kind !== "trust" &&
+                                            (!variants.length ||
+                                              !!exports.error)))
+                                      }
+                                      onClick={() =>
+                                        checked
+                                          ? void showResult(ledger, kind)
+                                          : openReview(kind, ledger)
+                                      }
+                                    >
+                                      <Icon name={checked ? "check" : kind} />
+                                    </button>
+                                  </ProofPreview>
                                 );
                               },
                             )}
@@ -1204,6 +1248,17 @@ export function App() {
                           className="ledger-popover"
                           id={`ledger-${ledger.ledger_hash}`}
                           popover="auto"
+                          onToggle={(event) => {
+                            const opened =
+                              event.currentTarget.matches(":popover-open");
+                            setOpenLedger((current) =>
+                              opened
+                                ? ledgerKey(ledger)
+                                : current === ledgerKey(ledger)
+                                  ? undefined
+                                  : current,
+                            );
+                          }}
                         >
                           <header>
                             <h2>
@@ -1219,18 +1274,6 @@ export function App() {
                             </button>
                           </header>
                           <dl>
-                            <dt>Ledger hash</dt>
-                            <dd>
-                              <code>{ledger.ledger_hash}</code>
-                            </dd>
-                            <dt>Parent hash</dt>
-                            <dd>
-                              <code>{ledger.parent_hash}</code>
-                            </dd>
-                            <dt>State root</dt>
-                            <dd>
-                              <code>{ledger.state_root}</code>
-                            </dd>
                             <dt>State</dt>
                             <dd>
                               Full snapshot ·{" "}
@@ -1238,7 +1281,7 @@ export function App() {
                                 ? "Peer"
                                 : "RPC"}
                             </dd>
-                            <dt>Operator trust</dt>
+                            <dt>Trust</dt>
                             <dd>
                               <Badge
                                 value={
@@ -1257,13 +1300,69 @@ export function App() {
                               <Badge value={ledger.merkle} />
                             </dd>
                           </dl>
+                          {(trustSucceeded ||
+                            ledger.trust === "operator_trusted") && (
+                            <p className="muted">
+                              Operator trust anchors this exact stored ledger
+                              commitment. This decision creates no Lean proof or
+                              network consensus certificate.
+                            </p>
+                          )}
+                          {openLedger === ledgerKey(ledger) && (
+                            <>
+                              <ProofViewer
+                                kind="merkle"
+                                base={base}
+                                status={ledger.merkle}
+                              />
+                              <ProofViewer
+                                kind="payments"
+                                base={base}
+                                status={ledger.payments}
+                              />
+                            </>
+                          )}
+                          <details className="technical-details">
+                            <summary>Technical details</summary>
+                            <dl>
+                              {" "}
+                              <dt>Ledger hash</dt>
+                              <dd>
+                                <code>{ledger.ledger_hash}</code>
+                              </dd>
+                              <dt>Parent hash</dt>
+                              <dd>
+                                <code>{ledger.parent_hash}</code>
+                              </dd>
+                              <dt>State root</dt>
+                              <dd>
+                                <code>{ledger.state_root}</code>
+                              </dd>
+                            </dl>
+                            {variants.map((variant) => (
+                              <p key={variant.export_id}>
+                                Export #{variant.export_id}
+                                <code>SHA-256 {variant.payload_sha256}</code>
+                              </p>
+                            ))}
+                          </details>
+                          {ledger.trust === "verified_trusted" && (
+                            <p>
+                              Tree and Payment checks passed for the same
+                              export. Skipped Payments remain outside
+                              verification. This covers tree consistency and
+                              supported Payment accounting; other transaction
+                              semantics and network consensus remain unverified.
+                            </p>
+                          )}
                           {trustSucceeded && (
                             <p className="inline-result" role="status">
                               Ledger trusted as an operator anchor. Proof
                               results are unchanged.
                             </p>
                           )}
-                          {selection.ledger === ledgerKey(ledger) &&
+                          {openLedger === ledgerKey(ledger) &&
+                            selection.ledger === ledgerKey(ledger) &&
                             selection.job && (
                               <div className="inline-result" aria-live="polite">
                                 {jobDetail.error && (
@@ -1272,6 +1371,10 @@ export function App() {
                                 {result && resultMatchesRow ? (
                                   <JobResult
                                     job={result}
+                                    base={base}
+                                    exportIds={variants.map(
+                                      (variant) => variant.export_id,
+                                    )}
                                     enabled={enabled}
                                     cancel={() =>
                                       void run({
@@ -1295,12 +1398,6 @@ export function App() {
                               A captured export is required for verification.
                             </p>
                           )}
-                          {variants.map((variant) => (
-                            <details key={variant.export_id}>
-                              <summary>Export #{variant.export_id}</summary>
-                              <code>SHA-256 {variant.payload_sha256}</code>
-                            </details>
-                          ))}
                         </div>
                       </li>
                     </Fragment>
@@ -1428,6 +1525,9 @@ export function App() {
           <div
             id="history-result"
             popover="auto"
+            onToggle={(event) =>
+              setHistoryOpen(event.currentTarget.matches(":popover-open"))
+            }
             className="ledger-popover"
             aria-label="Verification result"
             aria-live="polite"
@@ -1442,9 +1542,10 @@ export function App() {
                 ×
               </button>
             </header>
-            {result ? (
+            {historyOpen && result ? (
               <JobResult
                 job={result}
+                base={base}
                 enabled={enabled}
                 cancel={() =>
                   void run({
@@ -1535,20 +1636,32 @@ function ReviewDialog({
             ? "Check Merkle state consistency with Lean and an axiom audit. An exact trusted parent or checked lineage is required."
             : "Check supported Payments with Lean and report skipped Payments. Tree consistency is checked separately; other transaction semantics are not verified."}
       </p>
-      <dl>
-        <dt>Bundle / network</dt>
-        <dd>
-          {review.bundle} / {network ?? "Unknown"}
-        </dd>
-        <dt>Ledger hash</dt>
-        <dd>
-          <code>{review.ledger.ledger_hash}</code>
-        </dd>
-        <dt>State root</dt>
-        <dd>
-          <code>{review.ledger.state_root}</code>
-        </dd>
-      </dl>
+      {review.kind !== "trust" && (
+        <ProofViewer kind={review.kind} base={`/bundles/${review.bundle}`} />
+      )}
+      <details className="technical-details">
+        <summary>Technical details</summary>
+        <dl>
+          <dt>Bundle / network</dt>
+          <dd>
+            {review.bundle} / {network ?? "Unknown"}
+          </dd>
+          <dt>Ledger hash</dt>
+          <dd>
+            <code>{review.ledger.ledger_hash}</code>
+          </dd>
+          <dt>State root</dt>
+          <dd>
+            <code>{review.ledger.state_root}</code>
+          </dd>
+        </dl>
+        {variant && (
+          <p>
+            Export #{variant.export_id}
+            <code>SHA-256 {variant.payload_sha256}</code>
+          </p>
+        )}
+      </details>
       {review.kind === "trust" ? (
         <label className="field">
           Reason <span className="muted">(optional)</span>
@@ -1572,18 +1685,13 @@ function ReviewDialog({
                 <option value="">Choose an export</option>
                 {choices.map((choice) => (
                   <option key={choice.export_id} value={choice.export_id}>
-                    Export #{choice.export_id} · {short(choice.payload_sha256)}
+                    Export #{choice.export_id}
                   </option>
                 ))}
               </select>
             </label>
           )}
-          {variant && (
-            <p className="export">
-              Export #{variant.export_id}
-              <code>SHA-256 {variant.payload_sha256}</code>
-            </p>
-          )}
+          {variant && <p className="export">Export #{variant.export_id}</p>}
           {!choices.length && (
             <p>No captured export is available for this ledger.</p>
           )}
@@ -1722,12 +1830,76 @@ function PaymentSummary({ report }: { report: unknown }) {
     </p>
   );
 }
+function AttemptProof({
+  kind,
+  base,
+  job,
+  verification,
+  status,
+}: {
+  kind: ProofKind;
+  base: string;
+  job: string;
+  verification: string;
+  status: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const details = ref.current?.closest("details");
+    const update = () => setVisible(!!details?.open);
+    update();
+    details?.addEventListener("toggle", update);
+    return () => details?.removeEventListener("toggle", update);
+  }, []);
+  return (
+    <div ref={ref}>
+      {visible && (
+        <ProofViewer
+          kind={kind}
+          base={base}
+          status={status}
+          attempt={{ job, verification }}
+        />
+      )}
+    </div>
+  );
+}
+function PaymentReasons({ report }: { report: unknown }) {
+  if (!report || typeof report !== "object") return null;
+  const transactions = (report as Record<string, unknown>).transactions;
+  if (!Array.isArray(transactions)) return null;
+  return (
+    <>
+      {transactions
+        .filter(
+          (tx) =>
+            tx &&
+            typeof tx === "object" &&
+            ["unsupported", "failed"].includes(tx.status),
+        )
+        .map((tx, index) => (
+          <p key={index} className="payment-reason">
+            Payment {String(tx.transaction_index ?? tx.index ?? index)} ·{" "}
+            {String(tx.status)}:{" "}
+            {String(
+              tx.reason ?? tx.error ?? "See technical report for details",
+            )}
+          </p>
+        ))}
+    </>
+  );
+}
 function JobResult({
   job,
+  base,
+  exportIds,
   enabled,
   cancel,
 }: {
   job: JobDetail;
+  base: string;
+  exportIds?: string[];
   enabled: boolean;
   cancel: () => void;
 }) {
@@ -1750,33 +1922,53 @@ function JobResult({
             : "Waiting for kernel compilation and the axiom audit…"}
         </p>
       )}
-      {job.items.map((item) => (
-        <p key={item.ledger_index} className="job-item">
-          Ledger {Number(item.ledger_index).toLocaleString()} · Export #
-          {item.export_id || "pending"} <Badge value={item.status} />
-          {item.error && <span className="error-text">{item.error}</span>}
-        </p>
-      ))}
-      {job.verifications.map((attempt) => (
-        <div key={attempt.verification_id}>
-          {attempt.kind === "payments" && (
-            <PaymentSummary report={attempt.report_json} />
-          )}
-          <details className="attempt">
-            <summary>
-              {label(attempt.kind)} result <Badge value={attempt.status} />
-            </summary>
-            <h4>Report</h4>
-            <Json value={attempt.report_json} />
-            <p className="muted">
-              Attempt #{attempt.verification_id} · Export #{attempt.export_id}
-            </p>
-            <p className="artifact-path">{attempt.attempt_dir}</p>
-            <h4>Artifact metadata</h4>
-            <Json value={attempt.artifacts_json} />
-          </details>
-        </div>
-      ))}
+      {job.items
+        .filter((item) => !exportIds || exportIds.includes(item.export_id))
+        .map((item) => (
+          <p key={item.ledger_index} className="job-item">
+            Ledger {Number(item.ledger_index).toLocaleString()} · Export #
+            {item.export_id || "pending"} <Badge value={item.status} />
+            {item.error && <span className="error-text">{item.error}</span>}
+          </p>
+        ))}
+      {job.verifications
+        .filter(
+          (attempt) => !exportIds || exportIds.includes(attempt.export_id),
+        )
+        .map((attempt) => (
+          <div key={attempt.verification_id}>
+            {attempt.kind === "payments" && (
+              <PaymentSummary report={attempt.report_json} />
+            )}
+            <details className="attempt">
+              <summary>
+                {label(attempt.kind)} result <Badge value={attempt.status} />
+              </summary>
+              {(attempt.kind === "merkle" || attempt.kind === "payments") && (
+                <AttemptProof
+                  kind={attempt.kind}
+                  base={base}
+                  job={job.job_id}
+                  verification={attempt.verification_id}
+                  status={attempt.status}
+                />
+              )}
+              <PaymentReasons report={attempt.report_json} />
+              <details className="technical-details">
+                <summary>Technical details</summary>
+                <h4>Report</h4>
+                <Json value={attempt.report_json} />
+                <p className="muted">
+                  Attempt #{attempt.verification_id} · Export #
+                  {attempt.export_id}
+                </p>
+                <p className="artifact-path">{attempt.attempt_dir}</p>
+                <h4>Artifact metadata</h4>
+                <Json value={attempt.artifacts_json} />
+              </details>
+            </details>
+          </div>
+        ))}
     </>
   );
 }

@@ -144,6 +144,11 @@ def payment_subset_cases(folder):
     skipped['TransactionIndex'] = skipped['metadata']['TransactionIndex'] = 0
     assert skipped['metadata_blob'].startswith('201C00000002')
     skipped['metadata_blob'] = '201C00000000' + skipped['metadata_blob'][12:]
+    all_skipped = copy.deepcopy(partial)
+    for skipped in all_skipped['transactions'][:2]:
+        skipped['result'] = skipped['metadata']['TransactionResult'] = 'tecUNFUNDED_PAYMENT'
+        assert skipped['metadata_blob'].endswith('031000')
+        skipped['metadata_blob'] = skipped['metadata_blob'][:-2] + '68'
     failed = copy.deepcopy(partial)
     tx = failed['transactions'][0]
     old_hash = tx['hash']
@@ -155,6 +160,7 @@ def payment_subset_cases(folder):
     for name, payload, status, counts in [
         ('partial', partial, 'supported_checked', (2, 1, 0)),
         ('skipped', skipped_only, 'no_supported_payments', (0, 1, 0)),
+        ('all-skipped', all_skipped, 'no_supported_payments', (0, 3, 0)),
         ('failed', failed, 'failed', (1, 1, 1)),
     ]:
         with backend(folder / name) as (url, _):
@@ -176,9 +182,25 @@ def payment_subset_cases(folder):
             assert any(t['status'] == 'unsupported' and t['reason'] == 'failure result not modeled'
                        for t in report['transactions'])
             assert result['items'][1]['status'] == ('pending' if name == 'failed' else 'succeeded')
+            assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '100')['trust'] == 'untrusted'
             if name != 'failed':
                 assert len(result['verifications']) == 2
                 assert all(p['kind'] == 'payments' for p in result['verifications'])
+            if name in ('partial', 'all-skipped'):
+                request(url, '/ledgers', anchor(), 204)
+                cli(url, 'trust', 99, EXPORT['parent_ledger_hash'])
+                state_file = folder / (name + '-state.json')
+                state_file.write_text(json.dumps(TREE))
+                cli(url, 'state', 'import', '--index', 99, '--hash', EXPORT['parent_ledger_hash'], '--file', state_file)
+                queue(url, checks=['merkle'])
+                row = next(r for r in request(url, '/ledgers') if r['ledger_index'] == '100')
+                assert row['merkle'] == 'kernel_checked' and row['payments'] == status
+                assert row['trust'] == 'verified_trusted', row
+                with sqlite3.connect(folder / name / 'xl.sqlite3') as db:
+                    assert db.execute('SELECT count(*) FROM trust_anchors').fetchone()[0] == 1
+        if name in ('partial', 'all-skipped'):
+            with backend(folder / name) as (url, _):
+                assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '100')['trust'] == 'verified_trusted'
 
 
 def main():
@@ -205,6 +227,7 @@ def main():
             standalone_report = json.loads(standalone['verifications'][0]['report_json'])
             assert standalone_report['payments_verified'] == 3
             assert standalone_report['state_authentication'] == 'not_checked_by_payments'
+            assert request(url, '/ledgers')[0]['trust'] == 'untrusted'
             with sqlite3.connect(data / 'xl.sqlite3') as db:
                 assert db.execute('SELECT anchor_id,parent_verification_id FROM verifications WHERE job_id=?',
                                   (standalone['job_id'],)).fetchone() == (None, None)
@@ -220,6 +243,12 @@ def main():
             state_file.write_text(json.dumps(TREE))
             cli(url, 'state', 'import', '--index', 99, '--hash', EXPORT['parent_ledger_hash'], '--file', state_file)
             queue(url, checks=['payments'])
+            # Separate jobs in Payment-first order grant verified trust, not an anchor.
+            queue(url, checks=['merkle'])
+            assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '100')['trust'] == 'verified_trusted'
+            assert all(r['trust'] == 'untrusted' for r in cli(url, 'ledgers', '-b', 'isolated'))
+            with sqlite3.connect(data / 'xl.sqlite3') as db:
+                assert db.execute('SELECT count(*) FROM trust_anchors').fetchone()[0] == 1
             submitted = cli(url, 'ledger', 'verify', '--index', 100, '--checks', 'merkle,payments')
             proof = wait_job(url, submitted['job_id'], 'succeeded')
             assert cli(url, 'job', 'show', '--id', submitted['job_id'])['status'] == 'succeeded'
@@ -228,7 +257,7 @@ def main():
             payment = json.loads(proof['verifications'][1]['report_json'])
             assert payment['payments_verified'] == 3 and payment['other_transactions'] == 1
             assert payment['full_ledger_semantics'] == 'not_proved'
-            assert all(row['trust'] == 'untrusted' for row in cli(url, 'ledger', 'show') if row['ledger_index'] == '100')
+            assert all(row['trust'] == 'verified_trusted' for row in cli(url, 'ledger', 'show') if row['ledger_index'] == '100')
             # Payment audits remain independent after a checked Merkle result exists.
             queue(url, checks=['payments'])
             queue(url, first=101, expected='blocked')
@@ -241,6 +270,14 @@ def main():
             request(url, '/ledgers', next_export, 204)
             lineage = queue(url, first=101, checks=['merkle'])
             assert lineage['verifications'][0]['status'] == 'kernel_checked'
+            assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '101')['trust'] == 'untrusted'
+            # Tree-first order also grants trust, including an empty Payment set.
+            queue(url, first=101, checks=['payments'])
+            assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '101')['trust'] == 'verified_trusted'
+            fork = dict(next_export, ledger_hash='88' * 32)
+            request(url, '/ledgers', fork, 204)
+            queue(url, first=101, checks=['payments'], ledger_hash=fork['ledger_hash'])
+            assert next(r for r in request(url, '/ledgers') if r['ledger_hash'] == fork['ledger_hash'].upper())['trust'] == 'untrusted'
             # Bad root is a failure, never promoted to kernel_checked.
             bad = dict(next_export, ledger_index=102, ledger_hash='44' * 32,
                        parent_ledger_hash=next_export['ledger_hash'], state_root='55' * 32)
@@ -248,6 +285,7 @@ def main():
             failed_range = queue(url, first=102, last=103, checks=['merkle'], expected='failed')
             assert failed_range['verifications'][0]['status'] == 'failed'
             assert failed_range['items'][1]['status'] == 'pending'
+            assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '102')['trust'] == 'untrusted'
             wrong_network = dict(EXPORT, network_id=1)
             request(url, '/ledgers', wrong_network, 422)
             # A supplied export ID disambiguates variants; default selection fails closed.
@@ -255,12 +293,19 @@ def main():
             request(url, '/ledgers', variant, 204)
             request(url, '/jobs', {'from': 100, 'checks': ['payments']}, 422)
             original_id = proof['verifications'][0]['export_id']
+            variant_id = next(r['export_id'] for r in request(url, '/exports')
+                              if r['ledger_index'] == '100' and r['export_id'] != original_id)
+            queue(url, checks=['payments'], export_id=int(variant_id))
+            # Green checks from different payload variants cannot be combined.
+            assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '100')['trust'] == 'untrusted'
             queue(url, checks=['payments'], export_id=int(original_id))
+            assert next(r for r in request(url, '/ledgers') if r['ledger_index'] == '100')['trust'] == 'verified_trusted'
             # Tampering with a retained parent certificate blocks dependent verification.
             artifacts = json.loads(proof['verifications'][0]['artifacts_json'])
             certificate = next(Path(a['path']) for a in artifacts if a['path'].endswith('Certificate.lean'))
             certificate.write_text(certificate.read_text() + '\n-- altered after checking\n')
-            queue(url, first=101, checks=['merkle'], expected='blocked')
+            queue(url, first=101, checks=['merkle'], ledger_hash=next_export['ledger_hash'], expected='blocked')
+            assert next(r for r in request(url, '/ledgers') if r['ledger_hash'] == next_export['ledger_hash'].upper())['trust'] == 'untrusted'
             queue(url, checks=['payments'], export_id=int(original_id))
             # A storage failure must not acknowledge delivery.
             with sqlite3.connect(data / 'xl.sqlite3') as db:

@@ -1,4 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+const proofFiles = (kind: string) =>
+  (kind === "merkle"
+    ? ["KernelMerkle", "SHA512", "SHA512Fast"]
+    : ["PaymentModel", "LedgerProofs"]
+  ).map((name) => ({
+    name: name + ".lean",
+    source: readFileSync(
+      new URL(`../../LeanXRPL/${name}.lean`, import.meta.url),
+      "utf8",
+    ),
+  }));
+const certificateSource =
+  "theorem supported_valid : ∀ f ∈ supportedPayments, Valid f := by\n  intro f h\n  simp [supportedPayments] at h\n";
 const A = "A".repeat(64),
   B = "B".repeat(64),
   C = "C".repeat(64),
@@ -120,6 +134,31 @@ async function setup(page: Page, running = false) {
       };
     else if (path === "/bundles")
       data = [bundle("default"), bundle("main"), bundle("archive")];
+    else if (/\/proofs\/(merkle|payments)$/.test(path)) {
+      const kind = path.split("/").at(-1)!;
+      data = { kind, files: proofFiles(kind) };
+    } else if (/\/verifications\/\d+\/proof$/.test(path))
+      data = {
+        kind: "payments",
+        status: "unsupported",
+        entry: "generated_Payments",
+        files: [
+          {
+            id: "generated_Payments",
+            name: "Payments.lean",
+            role: "generated",
+            recorded: true,
+          },
+        ],
+      };
+    else if (/\/proof\/generated_Payments\/0$/.test(path))
+      data = {
+        file_id: "generated_Payments",
+        page: 0,
+        pages: 1,
+        source: certificateSource,
+        recorded: true,
+      };
     else if (path.endsWith("/ledgers"))
       data = [
         ledger("200", A, { trust: "operator_trusted" }),
@@ -277,7 +316,10 @@ test("number and checkmark open a details popover; theme persists", async ({
   await row(page, "200")
     .getByRole("button", { name: "Trust ledger result" })
     .click();
-  await expect(page.locator(".ledger-popover:popover-open")).toContainText(A);
+  const details = page.locator(".ledger-popover:popover-open");
+  await expect(details.getByText(A, { exact: true }).first()).not.toBeVisible();
+  await details.getByText("Technical details", { exact: true }).click();
+  await expect(details.getByText(A, { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Close ledger details" }).click();
   await row(page, "201")
     .getByRole("button", { name: "201", exact: true })
@@ -528,8 +570,10 @@ test("trust needs one exact confirmation and displays the result in a popover", 
     .getByRole("button", { name: "Trust ledger", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText(B);
-  await expect(dialog).toContainText(D);
+  await expect(dialog.getByText(B, { exact: true })).not.toBeVisible();
+  await dialog.getByText("Technical details", { exact: true }).click();
+  await expect(dialog.getByText(B, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(D, { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel" }).click();
   expect(calls.filter((call) => call.path.endsWith("/trust"))).toHaveLength(0);
   await row(page, "201")
@@ -577,6 +621,10 @@ test("Payment confirmation pins an export and shows unsupported reports in the r
   const popover = page.locator(".ledger-popover:popover-open");
   await expect(popover.locator(".inline-result")).toContainText("Unsupported");
   await popover.getByText("Payment result").click();
+  await popover
+    .locator(".attempt")
+    .getByText("Technical details", { exact: true })
+    .click();
   await expect(popover.locator(".attempt")).toContainText(
     "payments_unsupported",
   );
@@ -640,6 +688,10 @@ test("supported Payment results succeed and keep skipped counts visible", async 
   );
   await expect(popover).toContainText("Supported Payments checked");
   await popover.getByText("Payment result").click();
+  await popover
+    .locator(".attempt")
+    .getByText("Technical details", { exact: true })
+    .click();
   await expect(popover.locator(".attempt")).toContainText(
     "failure result not modeled",
   );
@@ -1184,3 +1236,456 @@ for (const check of ["merkle", "payments"]) {
     expect(errors).toEqual([]);
   });
 }
+
+test("proof previews are read-only, keyboard accessible and stay open while reading", async ({
+  page,
+}) => {
+  const { calls, errors } = await setup(page);
+  const payment = row(page, "201")
+    .locator(".proof-preview-anchor")
+    .filter({
+      has: page.getByRole("button", { name: "Verify payment", exact: true }),
+    });
+  await expect(payment.locator("button")).toBeDisabled();
+  await payment.focus();
+  const preview = page.getByRole("dialog", {
+    name: "Proof preview",
+    exact: true,
+  });
+  await expect(preview).toBeVisible();
+  await expect(preview.locator(".lean-source").first()).toContainText(
+    "def Valid (f : Facts) : Prop := Common f ∧ Rules f",
+  );
+  await expect(preview).toContainText("Current Lean definitions");
+  await expect(preview).toContainText("Generated certificate");
+  await expect(preview.locator(".certificate-view .lean-source")).toHaveText(
+    certificateSource,
+  );
+  await expect(preview).toContainText("Receipt-bound source");
+  await preview.getByRole("button", { name: "Keep open", exact: true }).click();
+  await page.mouse.move(5, 5);
+  await expect(preview).toBeVisible();
+  await preview.locator(".lean-source").first().hover();
+  await page.mouse.wheel(0, 120);
+  await expect(preview).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(preview).not.toBeVisible();
+  await payment.blur();
+  const tree = row(page, "201").getByRole("button", {
+    name: "Verify tree result",
+    exact: true,
+  });
+  await tree.hover();
+  await expect(preview.locator(".lean-source").first()).toContainText(
+    "def LedgerTransition",
+  );
+  await expect(preview.locator(".lean-source").first()).toContainText(
+    "theorem certify",
+  );
+  await preview.hover();
+  await expect(preview).toBeVisible();
+  await preview.getByRole("button", { name: "Close proof preview" }).click();
+  await expect(preview).not.toBeVisible();
+  await tree.hover();
+  await expect(preview).toBeVisible();
+  await page.mouse.click(5, 5);
+  await expect(preview).not.toBeVisible();
+  expect(calls).toHaveLength(0);
+  expect(errors).toEqual([]);
+});
+
+test("verification and Jobs show Lean source first and keep raw receipts collapsed", async ({
+  page,
+}) => {
+  const { calls, errors } = await setup(page);
+  await connect(page);
+  await row(page, "201")
+    .getByRole("button", { name: "Verify payment", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator(".lean-source").first()).toContainText(
+    "theorem payment_accounting",
+  );
+  await expect(dialog.locator(".technical-details")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await dialog.getByLabel("Exact export").selectOption("8");
+  await expect(
+    dialog.locator(".technical-details code").last(),
+  ).not.toBeVisible();
+  await dialog.getByRole("button", { name: "Confirm verify payment" }).click();
+  const details = page.locator(".ledger-popover:popover-open");
+  await details.getByText("Payment result", { exact: false }).click();
+  const attempt = details.locator(".attempt");
+  await expect(attempt.locator(".certificate-view .lean-source")).toHaveText(
+    certificateSource,
+  );
+  await expect(attempt.locator(".technical-details")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await page.getByRole("button", { name: "Close ledger details" }).click();
+  await page.goto("/tests/harness.html?bundle=main&view=jobs&job=18");
+  const history = page.locator("#history-result:popover-open");
+  await history.getByText("Payment result", { exact: false }).click();
+  await expect(history.locator(".certificate-view .lean-source")).toHaveText(
+    certificateSource,
+  );
+  expect(calls.filter((call) => call.path.endsWith("/jobs"))).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
+
+test("source errors stay visible and file changes cannot retain a previous certificate", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route(
+    "**/api/bundles/main/jobs/18/verifications/22/proof",
+    (route) =>
+      route.fulfill({
+        json: {
+          kind: "payments",
+          status: "unsupported",
+          entry: "generated_Payments",
+          files: [
+            {
+              id: "generated_Payments",
+              name: "Payments.lean",
+              role: "generated",
+              recorded: true,
+            },
+            {
+              id: "definition_PaymentModel",
+              name: "PaymentModel.lean",
+              role: "definition",
+              recorded: true,
+            },
+          ],
+        },
+      }),
+  );
+  await page.route("**/proof/definition_PaymentModel/0", (route) =>
+    route.fulfill({
+      status: 422,
+      json: { error: "recorded proof source unavailable: digest mismatch" },
+    }),
+  );
+  const trigger = row(page, "201")
+    .locator(".proof-preview-anchor")
+    .filter({
+      has: page.getByRole("button", { name: "Verify payment", exact: true }),
+    });
+  await trigger.focus();
+  const preview = page.getByRole("dialog", {
+    name: "Proof preview",
+    exact: true,
+  });
+  await expect(preview.locator(".certificate-view .lean-source")).toHaveText(
+    certificateSource,
+  );
+  await preview
+    .getByLabel("Lean source file")
+    .selectOption("definition_PaymentModel");
+  await expect(preview).toContainText("digest mismatch");
+  await expect(preview.locator(".certificate-view .lean-source")).toHaveCount(
+    0,
+  );
+  await expect(preview).toContainText("Current Lean definitions");
+});
+
+test.describe("Narrow proof layouts", () => {
+  test.use({ hasTouch: true });
+  for (const theme of ["light", "dark"] as const) {
+    test(`proof layout remains readable on a narrow ${theme} screen`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: theme });
+      await setup(page);
+      await connect(page);
+      await row(page, "201")
+        .getByRole("button", { name: "Verify payment", exact: true })
+        .tap();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.locator(".lean-source").first()).toContainText(
+        "def Valid",
+      );
+      const bounds = await dialog.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+      await page.screenshot({ path: `/private/tmp/xl-proof-${theme}.png` });
+      await expect(
+        dialog.getByRole("button", { name: "Cancel", exact: true }),
+      ).toBeEnabled();
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(dialog).not.toBeVisible();
+    });
+  }
+});
+
+test("running attempts discover source and replace unchecked labels when the receipt arrives", async ({
+  page,
+}) => {
+  await setup(page);
+  let generated = false,
+    finished = false,
+    reads = 0;
+  await page.route("**/api/bundles/main/jobs/18", (route) =>
+    route.fulfill({
+      json: {
+        job_id: "18",
+        status: finished ? "succeeded" : "running",
+        error: "",
+        items: [
+          {
+            ledger_index: "201",
+            export_id: "8",
+            status: finished ? "succeeded" : "running",
+            error: "",
+          },
+        ],
+        verifications: [
+          {
+            verification_id: "22",
+            export_id: "8",
+            kind: "payments",
+            status: finished ? "supported_checked" : "running",
+            report_json: JSON.stringify({
+              payments_verified: 1,
+              payments_skipped: 1,
+              payments_failed: 0,
+              transactions: [
+                {
+                  index: 1,
+                  status: "unsupported",
+                  reason: "failure result not modeled",
+                },
+              ],
+            }),
+            artifacts_json: "[]",
+            attempt_dir: "/tmp/test",
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(
+    "**/api/bundles/main/jobs/18/verifications/22/proof",
+    (route) => {
+      reads++;
+      return route.fulfill({
+        json: {
+          kind: "payments",
+          status: finished ? "supported_checked" : "running",
+          entry: "generated_Payments",
+          files: generated
+            ? [
+                {
+                  id: "generated_Payments",
+                  name: "Payments.lean",
+                  role: "generated",
+                  recorded: finished,
+                },
+              ]
+            : [],
+        },
+      });
+    },
+  );
+  await page.route("**/proof/generated_Payments/0", (route) =>
+    route.fulfill({
+      json: {
+        file_id: "generated_Payments",
+        page: 0,
+        pages: 1,
+        source: certificateSource,
+        recorded: finished,
+      },
+    }),
+  );
+  await page.goto("/tests/harness.html?bundle=main&view=jobs&job=18");
+  const history = page.locator("#history-result:popover-open");
+  await history.getByText("Payment result", { exact: false }).click();
+  await expect(history).toContainText("No generated Lean source");
+  await expect(history.locator(".payment-reason")).toContainText(
+    "failure result not modeled",
+  );
+  generated = true;
+  await expect(history).toContainText("Unchecked generated source", {
+    timeout: 6000,
+  });
+  finished = true;
+  await expect(history).toContainText("Receipt-bound source", {
+    timeout: 6000,
+  });
+  const beforeClose = reads;
+  await history
+    .getByRole("button", { name: "Close verification result" })
+    .click();
+  await expect(page.locator("#history-result .proof-viewer")).toHaveCount(0);
+  expect(reads).toBeGreaterThanOrEqual(2);
+  expect(reads).toBe(beforeClose);
+});
+
+test("changing source files discards a delayed response for the previous selection", async ({
+  page,
+}) => {
+  await setup(page);
+  let release!: () => void;
+  const resumed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  await page.route(
+    "**/api/bundles/main/jobs/18/verifications/22/proof",
+    (route) =>
+      route.fulfill({
+        json: {
+          kind: "payments",
+          status: "unsupported",
+          entry: "generated_Payments",
+          files: [
+            {
+              id: "generated_Payments",
+              name: "Payments.lean",
+              role: "generated",
+              recorded: true,
+            },
+            {
+              id: "definition_PaymentModel",
+              name: "PaymentModel.lean",
+              role: "definition",
+              recorded: true,
+            },
+          ],
+        },
+      }),
+  );
+  await page.route("**/proof/generated_Payments/0", async (route) => {
+    entered();
+    await resumed;
+    await route
+      .fulfill({
+        json: {
+          file_id: "generated_Payments",
+          page: 0,
+          pages: 1,
+          source: "-- old selection",
+          recorded: true,
+        },
+      })
+      .catch(() => {});
+  });
+  await page.route("**/proof/definition_PaymentModel/0", (route) =>
+    route.fulfill({
+      json: {
+        file_id: "definition_PaymentModel",
+        page: 0,
+        pages: 2,
+        source: "-- selected definition",
+        recorded: true,
+      },
+    }),
+  );
+  await page.route("**/proof/definition_PaymentModel/1", (route) =>
+    route.fulfill({
+      json: {
+        file_id: "definition_PaymentModel",
+        page: 1,
+        pages: 2,
+        source: "-- second page",
+        recorded: true,
+      },
+    }),
+  );
+  await row(page, "201")
+    .locator(".proof-preview-anchor")
+    .filter({
+      has: page.getByRole("button", { name: "Verify payment", exact: true }),
+    })
+    .focus();
+  const preview = page.getByRole("dialog", {
+    name: "Proof preview",
+    exact: true,
+  });
+  await started;
+  await preview
+    .getByLabel("Lean source file")
+    .selectOption("definition_PaymentModel");
+  release();
+  await expect(preview.locator(".certificate-view .lean-source")).toHaveText(
+    "-- selected definition",
+  );
+  await preview.getByRole("button", { name: "Next source page" }).click();
+  await expect(preview.locator(".certificate-view .lean-source")).toHaveText(
+    "-- second page",
+  );
+  await expect(
+    preview.getByRole("button", { name: "Next source page" }),
+  ).toBeDisabled();
+});
+
+test("Lean highlighting uses theme colors and preserves certificate text as selectable text", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await setup(page);
+  const source =
+    '-- <img src=x onerror="alert(1)">\ntheorem sample : Nat = 0xFF := by rfl\ndef text := "literal"\n';
+  await page.route("**/proof/generated_Payments/0", (route) =>
+    route.fulfill({
+      json: {
+        file_id: "generated_Payments",
+        page: 0,
+        pages: 1,
+        source,
+        recorded: true,
+      },
+    }),
+  );
+  await row(page, "201")
+    .locator(".proof-preview-anchor")
+    .filter({
+      has: page.getByRole("button", { name: "Verify payment", exact: true }),
+    })
+    .focus();
+  const preview = page.getByRole("dialog", {
+    name: "Proof preview",
+    exact: true,
+  });
+  const code = preview.locator(".certificate-view .language-lean");
+  await expect(code).toHaveText(source);
+  expect(await code.textContent()).toBe(source);
+  await expect(code.locator(".lean-comment")).toHaveText(
+    '-- <img src=x onerror="alert(1)">',
+  );
+  await expect(code.locator(".lean-declaration").first()).toHaveText("sample");
+  await expect(code.locator(".lean-number")).toHaveText("0xFF");
+  await expect(code.locator(".lean-string")).toHaveText('"literal"');
+  await expect(code.locator("img")).toHaveCount(0);
+  const keyword = code.locator(".lean-keyword").first();
+  const type = code.locator(".lean-type").first();
+  const light = await keyword.evaluate(
+    (element) => getComputedStyle(element).color,
+  );
+  expect(light).not.toBe(
+    await type.evaluate((element) => getComputedStyle(element).color),
+  );
+  await page.screenshot({ path: "/private/tmp/xl-lean-syntax-light.png" });
+  await page
+    .getByRole("button", { name: "Switch to dark mode", exact: true })
+    .click();
+  await row(page, "201")
+    .locator(".proof-preview-anchor")
+    .filter({
+      has: page.getByRole("button", { name: "Verify payment", exact: true }),
+    })
+    .focus();
+  await expect(keyword).not.toHaveCSS("color", light);
+  await page.screenshot({ path: "/private/tmp/xl-lean-syntax-dark.png" });
+  expect(await code.textContent()).toBe(source);
+});

@@ -30,6 +30,23 @@ test("proxy route and upstream policy cannot select arbitrary hosts or files", (
   assert.equal(allowedRoute("GET", "/bundles/main/tasks/1/cancel"), false);
   assert.equal(allowedRoute("POST", "/bundles/main/jobs/1/cancel"), true);
   assert.equal(allowedRoute("GET", "/bundles/main/jobs/1/cancel"), false);
+  for (const path of [
+    "/proofs/merkle",
+    "/bundles/main/proofs/payments",
+    "/bundles/main/jobs/1/verifications/2/proof",
+    "/jobs/1/verifications/2/proof/generated_Payments/0",
+  ]) {
+    assert.equal(allowedRoute("GET", path), true);
+    assert.equal(allowedRoute("POST", path), false);
+  }
+  for (const path of [
+    "/proofs/trust",
+    "/jobs/1/verifications/2/proof/../../keys/0",
+    "/jobs/1/verifications/2/proof/generated_Payments/0?path=secret",
+    "/jobs/1/verifications/2/proof/%2e%2e/0",
+    "/jobs/1/verifications/2/proof/generated_export.json/0",
+  ])
+    assert.equal(allowedRoute("GET", path), false);
 });
 test("server enforces Host and Origin, forwards explicit lengths and streams without buffering", async () => {
   let seenLength: string | undefined,

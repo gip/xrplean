@@ -8,6 +8,9 @@ provides a compact local ledger list.
 Operator trust, Merkle proofs, and Payment coverage are independent records. Data
 received from xrpld starts untrusted. A successful proof never silently grants
 operator trust, and receipt never counts as verification.
+When the latest tree and Payment checks both pass for the same export in a bundle,
+the ledger becomes `verified_trusted` automatically. Operator anchors remain
+separate from this verification status and from network consensus.
 
 ## Build
 
@@ -399,6 +402,20 @@ network, index, hash and state-root commitment. It does not fabricate a proof or
 check an external consensus certificate. Supply a snapshot or enough paths for
 that root before proving its successor.
 
+Ledger inventory reports `verified_trusted` when its latest Merkle attempt is
+`kernel_checked` and its latest Payment attempt passes the existing job success
+rule (`kernel_checked`, `supported_checked` or `no_supported_payments`) for the
+same exact export in the current bundle. The checks may run together or in
+separate jobs in either order. Skipped Payments retain their counts and reasons
+and remain outside verification. Different forks, bundles and payload variants
+cannot share checks to gain trust. A newer unfinished or unsuccessful check
+removes this derived status until both latest checks pass again. Existing
+successful receipts qualify automatically, including after restart. Manual anchors
+retain `operator_trusted`.
+Verified trust covers Merkle consistency and bounded Payment accounting; it does
+not establish other transaction semantics or network consensus and does not create
+an operator anchor or bypass proof dependency validation.
+
 Each job pins exact export IDs and SHA-256 digests at submission. Missing exports
 produce a blocked job; acquire the missing input and submit a new job. Ambiguous
 variants require a selection:
@@ -479,7 +496,7 @@ tree commitment. Fetched headers and transaction data remain acquisition records
 
 The React/TypeScript dashboard has two tabs: **Ledgers** and **Jobs**. Ledgers
 shows complete RPC and peer snapshots in ascending ledger order. Each row shows
-its ledger number and small icons for operator trust, bounded Payment verification,
+its ledger number and small icons for trust, bounded Payment verification,
 and tree consistency verification.
 Checkmarks open results; ledger numbers open commitment and export details in a
 popover. Solid lines connect consecutive indices; dashed lines and a missing count
@@ -557,6 +574,8 @@ network, hash and root. Verification pins an export ID and reviewed SHA-256 dige
 multiple variants require an explicit choice. Payment verification submits only
 the Payment check. Tree verification is a separate action and can run before or
 after it.
+When both latest checks pass for the same export, the trust icon becomes a
+checkmark and details show **Trusted · verified**.
 Unsupported Payments and failed checks stay visible in the result popover.
 Payment results summarize checked, skipped and failed counts. Partial coverage is
 labeled "Supported Payments checked"; earlier unsupported attempts retain their
@@ -593,6 +612,29 @@ Browser tests use a development-only identity fixture, plus a real wallet-provid
 startup check. The fixture is excluded from the production build. Actual hardware
 and Xaman account connections require a device and registered application and must
 be validated manually; automated tests do not claim that coverage.
+
+### Inspect the Lean proof
+
+Hover or keyboard-focus a Tree or Payment control to read **What Lean will check**:
+the actual Lean proposition and theorem bodies from the project source. Move into
+the preview to read or select code, or use **Keep open**; Escape, Close and outside
+click dismiss it. Clicking/tapping a verification control opens its existing review
+or result with the same source viewer. Reading proofs requires no wallet.
+
+Results expose **Generated certificate**, starting with the attempt's Merkle
+certificate or `Payments.lean`. The file selector includes supporting generated
+modules and receipt-bound definitions. Recorded source is checked against its
+saved digest; changed or missing files report unavailable. Current definitions are
+explicitly labeled separately, and generated source without a receipt is labeled
+unchecked. Only the existing kernel check and axiom audit establish proof success.
+
+Hashes, export digests and raw reports remain available under **Technical details**.
+Trust remains an operator decision; supported Payment accounting, skipped Payments,
+Merkle consistency and network consensus retain their separate meanings.
+
+`python3 tests/proof_source.py` exercises the source API with real Lean receipts and
+temporary missing/modified files, scope checks and UTF-8 paging fixtures.
+
 
 ### Speculos development wallet
 

@@ -28,7 +28,7 @@ ledger get / bundle new / bundle update also accept --transport auto|peer|rpc, -
 --no-progress and --detach. Ranges are inclusive; --index has the short form -i.\n\
 Acquisition runs in XLB; --detach returns its task ID. Ctrl+C only detaches progress.\n\
 Tasks track acquisition; jobs track verification. All results are JSON; progress uses stderr.\n\
-Trust requires a stored ledger. Verification never changes operator trust.\n\
+Trust requires a stored ledger. Passing both checks grants verified trust; operator anchors stay separate.\n\
 Legacy commands (fetch, ledgers, jobs, job ID, tasks, task ID, state new/update/info/list,\n\
 receive, trust, verify, exports and restart) remain compatibility aliases."
 

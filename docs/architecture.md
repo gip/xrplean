@@ -42,6 +42,9 @@ an explicit node network ID. A present malformed or out-of-range ID fails closed
 | GET | `/jobs` | durable job history |
 | POST | `/jobs/ID/cancel` | durable, idempotent cancellation of queued/running verification; returns job detail (HTTP 200), scoped to bundle/network |
 | GET | `/jobs/ID` | ledger item statuses and individual check attempts/reports/artifacts |
+| GET | `/proofs/KIND` | current allowlisted Lean definitions for `merkle` or `payments` |
+| GET | `/jobs/J/verifications/V/proof` | source file IDs and certificate entry for the scoped attempt |
+| GET | `/jobs/J/verifications/V/proof/FILE/PAGE` | digest-checked Lean source, zero-based UTF-8 pages of at most 64 KiB |
 
 Receipt validation is intentionally limited to the envelope; canonical transaction
 and state decoding happens in verification. HTTP 204 never means proof success.
@@ -153,6 +156,37 @@ cannot change XLB's network. Public Xaman key/return URL configuration is embedd
 at build time; secrets must never enter `VITE_` configuration. XRPL decoding,
 acquisition, verification policy, scheduling and all application data writes stay
 in Lean/XLB. Lean remains pinned to 4.34.1.
+
+### Read-only Lean proof source
+
+Tree and Payment controls preview Lean definitions on hover or keyboard focus;
+click/tap opens the existing persistent review or result. Previews can also be
+kept open explicitly and dismissed with Escape, outside click or Close. These
+reads require no wallet and never submit verification. Ledger details, reviews
+and Jobs results share the source viewer. Hashes, export digests, artifact paths
+and raw reports remain under collapsed Technical details; exact input review and
+submission checks are unchanged. Operator trust is explicitly a decision without
+a Lean certificate. Skipped/failed Payment reasons and coverage boundaries remain
+visible outside raw technical reports.
+
+XLB serves current allowlisted Lean modules through `GET /proofs/merkle` and
+`GET /proofs/payments`. These are labeled current project source. For historical
+attempts, `GET /jobs/J/verifications/V/proof` lists generated Lean files and
+recorded supporting definitions, using opaque file IDs and a certificate entry
+ID. `GET /jobs/J/verifications/V/proof/FILE/PAGE` returns zero-based source pages
+of at most 64 KiB, preserving UTF-8 characters. All routes support the existing
+bundle prefix; attempts must belong to the selected job, bundle and network.
+The UI proxy only forwards these allowlisted reads and never reads artifact files.
+
+Source file IDs resolve only to known generated Lean locations or allowlisted
+recorded Lean modules. Each recorded file is checked against its saved SHA-256
+before its bytes are served. Missing/changed source reports unavailable without
+substituting today's module. Unrecorded generated files from unsuccessful or
+unfinished attempts are labeled unchecked. Source availability and digest matching
+do not establish proof success: the existing kernel, axiom-audit, exact-input and
+verification-status rules remain authoritative. Source requests are lazy, use the
+existing three-request limiter, and abort when their selection is replaced.
+
 
 ### Speculos development identity
 
@@ -531,6 +565,20 @@ Their receipts have null `anchor_id` and `parent_verification_id` and report
 axiom audit remain required. A standalone Payment result proves supported exported
 accounting facts; it does not authenticate state commitments or authorize Merkle
 lineage. Both checks may be queued together or as separate jobs in either order.
+
+`GET /ledgers` derives `trust: "verified_trusted"` when the latest Merkle attempt
+for that exact ledger is `kernel_checked` and its latest Payment attempt meets
+the existing job success rule (`kernel_checked`, `supported_checked` or
+`no_supported_payments`), pinning the same export ID in the current bundle and
+network. Results from different forks or payload variants cannot be combined.
+Checks may complete in either order and in separate jobs. Skipped Payments remain
+visible and outside verification even when automatic trust is granted.
+A newer running, failed, blocked, interrupted or cancelled check removes
+derived trust until both latest checks qualify again. The derivation also applies
+to retained receipts after restart without rewriting history. Explicit anchors
+take precedence as `operator_trusted`; automatic trust creates no anchor and
+preserves Merkle dependency/artifact validation. The dashboard displays verified
+trust as a successful trust checkmark and names its bounded scope in ledger details.
 
 Merkle consistency and supported Payment accounting do not constitute full XRPL
 execution verification. Non-Payment transactions may contribute declared state

@@ -2,6 +2,7 @@ import XLB.Acquire
 import XLB.Worker
 import XLB.Tasks
 import XLB.Status
+import XLB.ProofSource
 import XL.Http
 
 open Lean LeanXRPL XL Std.Async
@@ -106,6 +107,16 @@ private partial def handler (cache : XLB.Status.Cache) (c : Config) (stop : IO.R
     | "GET","/jobs" => return ⟨200,← XLB.Store.jobs c,none⟩
     | "GET",path =>
       match path.splitOn "/" with
+      | ["","proofs",kind] => return ⟨200,← XLB.ProofSource.definitions c kind,none⟩
+      | ["","jobs",job,"verifications",verification,"proof"] =>
+        let some job := job.toNat? | throw <| IO.userError "invalid job ID"
+        let some verification := verification.toNat? | throw <| IO.userError "invalid verification ID"
+        return ⟨200,← XLB.ProofSource.listing c job verification,none⟩
+      | ["","jobs",job,"verifications",verification,"proof",file,page] =>
+        let some job := job.toNat? | throw <| IO.userError "invalid job ID"
+        let some verification := verification.toNat? | throw <| IO.userError "invalid verification ID"
+        let some page := page.toNat? | throw <| IO.userError "invalid proof page"
+        return ⟨200,← XLB.ProofSource.page c job verification file page,none⟩
       | ["","tasks",id] =>
         let some id := id.toNat? | throw <| IO.userError "invalid task ID"
         return ⟨200,← XLB.Tasks.getTask c id bundleOnly,none⟩

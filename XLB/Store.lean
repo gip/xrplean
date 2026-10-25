@@ -174,13 +174,19 @@ def trust (c : Config) (j : Json) : IO Json := do
   return obj [("ledger_hash",str row[1]!), ("trust",str "operator_trusted"), ("verification",str "unchanged")]
 
 def inventory (c : Config) : IO Json := do
+  let paymentSuccess := String.intercalate "," (← successfulPaymentStatuses.mapM quote)
+  -- Derive verified trust from the latest checks of one exact export. Keep
+  -- operator anchors separate so proof lineage still validates its dependencies.
   rowsJson (← sql c.db s!"SELECT l.idx,l.hash,l.parent_hash,l.state_root,
-    CASE WHEN t.id IS NULL THEN 'untrusted' ELSE 'operator_trusted' END,
+    CASE WHEN t.id IS NOT NULL THEN 'operator_trusted'
+      WHEN m.status='kernel_checked' AND p.status IN ({paymentSuccess}) AND m.export_id=p.export_id
+      THEN 'verified_trusted' ELSE 'untrusted' END,
     (SELECT COUNT(*) FROM exports e WHERE e.ledger_id=l.id),
     COALESCE(s.origin,'missing'),COALESCE(l.header_json,'null'),
-    COALESCE((SELECT v.status FROM verifications v JOIN exports e ON e.id=v.export_id JOIN jobs j ON j.id=v.job_id WHERE j.bundle={← quote c.bundle} AND e.ledger_id=l.id AND v.kind='merkle' ORDER BY v.id DESC LIMIT 1),'not_checked'),
-    COALESCE((SELECT v.status FROM verifications v JOIN exports e ON e.id=v.export_id JOIN jobs j ON j.id=v.job_id WHERE j.bundle={← quote c.bundle} AND e.ledger_id=l.id AND v.kind='payments' ORDER BY v.id DESC LIMIT 1),'not_checked')
+    COALESCE(m.status,'not_checked'),COALESCE(p.status,'not_checked')
     FROM ledgers l LEFT JOIN trust_anchors t ON t.ledger_id=l.id AND t.bundle={← quote c.bundle}
+    LEFT JOIN verifications m ON m.id=(SELECT v.id FROM verifications v JOIN exports e ON e.id=v.export_id JOIN jobs j ON j.id=v.job_id WHERE j.bundle={← quote c.bundle} AND j.network={c.network} AND e.ledger_id=l.id AND v.kind='merkle' ORDER BY v.id DESC LIMIT 1)
+    LEFT JOIN verifications p ON p.id=(SELECT v.id FROM verifications v JOIN exports e ON e.id=v.export_id JOIN jobs j ON j.id=v.job_id WHERE j.bundle={← quote c.bundle} AND j.network={c.network} AND e.ledger_id=l.id AND v.kind='payments' ORDER BY v.id DESC LIMIT 1)
     LEFT JOIN states s ON s.ledger_id=l.id AND s.bundle={← quote c.bundle} WHERE l.network={c.network} ORDER BY l.idx,l.hash")
     #["ledger_index","ledger_hash","parent_hash","state_root","trust","export_variants","state","header_json","merkle","payments"]
 

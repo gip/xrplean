@@ -47,6 +47,21 @@ try {
   expect(
     JSON.parse(receipt.verifications[0].report_json).state_authentication,
   ).toBe("not_checked_by_payments");
+  const paymentResult = page.locator(".ledger-popover:popover-open .attempt");
+  await paymentResult.locator("summary").first().click();
+  await expect(
+    paymentResult.locator(".certificate-view .lean-source"),
+  ).toContainText("theorem supported_xrp_accounting");
+  await expect(paymentResult).toContainText("Receipt-bound source");
+  const paymentSource = await (
+    await page.request.get(
+      origin +
+        `/api/bundles/default/jobs/1/verifications/${receipt.verifications[0].verification_id}/proof/generated_Payments/0`,
+    )
+  ).json();
+  await expect(
+    paymentResult.locator(".certificate-view .lean-source"),
+  ).toHaveText(paymentSource.source);
   const ledgers = await (
     await page.request.get(origin + "/api/bundles/default/ledgers")
   ).json();
@@ -89,6 +104,32 @@ try {
       ],
     ),
   ).toEqual([["merkle", "kernel_checked"]]);
+  const treeResult = page.locator(".ledger-popover:popover-open .attempt");
+  await treeResult.locator("summary").first().click();
+  await expect(
+    treeResult.locator(".certificate-view .lean-source"),
+  ).toContainText("theorem full_ledger_certificate");
+  await expect(treeResult).toContainText("Receipt-bound source");
+  await treeResult
+    .getByLabel("Lean source file")
+    .selectOption("definition_KernelMerkle");
+  await expect(
+    treeResult.locator(".certificate-view .lean-source"),
+  ).toContainText("def LedgerTransition");
+  const checkedLedgers = await (
+    await page.request.get(origin + "/api/bundles/default/ledgers")
+  ).json();
+  expect(
+    checkedLedgers.find(
+      (ledger: { ledger_index: string }) => ledger.ledger_index === "201",
+    ).trust,
+  ).toBe("verified_trusted");
+  await expect(
+    row("201").getByRole("button", { name: "Trust ledger result" }),
+  ).toBeVisible();
+  await expect(page.locator(".ledger-popover:popover-open")).toContainText(
+    "Trusted · verified",
+  );
   await page.getByRole("button", { name: "Close ledger details" }).click();
   await page.getByLabel("Fetch by index").fill("200");
   await page.getByRole("button", { name: "Fetch ledger", exact: true }).click();
