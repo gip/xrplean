@@ -10,6 +10,7 @@
 #include <openssl/pem.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
+#include <openssl/ripemd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -46,6 +47,22 @@ static lean_object *bytes(const unsigned char *p, size_t n) {
   return a;
 }
 static tls_state *state(b_lean_obj_arg t) { return lean_get_external_data(t); }
+LEAN_EXPORT lean_obj_res lx_ripemd160(b_lean_obj_arg a, lean_obj_arg w) {
+  (void)w; unsigned char out[RIPEMD160_DIGEST_LENGTH];
+  if (!RIPEMD160(lean_sarray_cptr(a), lean_sarray_size(a), out)) return failure("RIPEMD160 failed");
+  return lean_io_result_mk_ok(bytes(out, sizeof out));
+}
+LEAN_EXPORT lean_obj_res lx_secp_public_valid(b_lean_obj_arg a, lean_obj_arg w) {
+  (void)w; ERR_clear_error();
+  EC_GROUP *group = EC_GROUP_new_by_curve_name(NID_secp256k1);
+  EC_POINT *point = group ? EC_POINT_new(group) : NULL;
+  const unsigned char *p = lean_sarray_cptr(a);
+  int ok = point && lean_sarray_size(a) == 33 && (p[0] == 2 || p[0] == 3) &&
+    EC_POINT_oct2point(group, point, p, 33, NULL) == 1 &&
+    EC_POINT_is_at_infinity(group, point) == 0 && EC_POINT_is_on_curve(group, point, NULL) == 1;
+  EC_POINT_free(point); EC_GROUP_free(group); ERR_clear_error();
+  return lean_io_result_mk_ok(lean_box(ok));
+}
 LEAN_EXPORT lean_obj_res lx_tls_new(b_lean_obj_arg host, lean_obj_arg w) {
   (void)w; ERR_clear_error(); init_classes();
   tls_state *s = calloc(1, sizeof *s);

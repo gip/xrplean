@@ -21,6 +21,7 @@ import { requestFor, type Command } from "./commands.ts";
 import { useIdentity } from "./identity.ts";
 import { usePoll, refresh } from "./usePoll.ts";
 import { useRunningJobs } from "./useRunningJobs.ts";
+import { BatchComposer } from "./BatchComposer.tsx";
 import { ProofViewer, ProofPreview, type ProofKind } from "./ProofViewer.tsx";
 
 const short = (value: string) => `${value.slice(0, 10)}…${value.slice(-8)}`;
@@ -171,7 +172,8 @@ function Dialog({
   );
 }
 interface Selection {
-  view: "ledgers" | "jobs";
+  view: "ledgers" | "jobs" | "batch";
+  batch?: string;
   bundle: string;
   ledger?: string;
   task?: string;
@@ -182,7 +184,13 @@ function readSelection(): Selection {
   const number = (key: string) =>
     /^\d+$/.test(params.get(key) ?? "") ? params.get(key)! : undefined;
   return {
-    view: params.get("view") === "jobs" ? "jobs" : "ledgers",
+    view:
+      params.get("view") === "batch"
+        ? "batch"
+        : params.get("view") === "jobs"
+          ? "jobs"
+          : "ledgers",
+    batch: number("batch"),
     bundle: /^[A-Za-z0-9_-]{1,64}$/.test(params.get("bundle") ?? "")
       ? params.get("bundle")!
       : "default",
@@ -827,11 +835,19 @@ export function App() {
                   : `Network ${health.data.network_id}`
                 : "Local workspace"}
             </p>
-            <h1>{selection.view === "jobs" ? "Jobs" : "Ledgers"}</h1>
+            <h1>
+              {selection.view === "batch"
+                ? "Batch"
+                : selection.view === "jobs"
+                  ? "Jobs"
+                  : "Ledgers"}
+            </h1>
             <p className="muted">
-              {selection.view === "jobs"
-                ? "Fetches and verification checks."
-                : "Complete state. One ledger at a time."}
+              {selection.view === "batch"
+                ? "Unsigned XRP Payments with a Lean certificate."
+                : selection.view === "jobs"
+                  ? "Fetches and verification checks."
+                  : "Complete state. One ledger at a time."}
             </p>
           </div>
           <button className="quiet" onClick={refresh}>
@@ -895,7 +911,7 @@ export function App() {
             </p>
           ))}
         <div className="view-tabs" role="tablist" aria-label="Workspace">
-          {(["ledgers", "jobs"] as const).map((view) => (
+          {(["ledgers", "jobs", "batch"] as const).map((view) => (
             <button
               key={view}
               role="tab"
@@ -916,14 +932,14 @@ export function App() {
                   ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
                 ) {
                   event.preventDefault();
+                  const views = ["ledgers", "jobs", "batch"] as const;
+                  const direction = event.key === "ArrowLeft" ? -1 : 1;
                   const next =
                     event.key === "Home"
-                      ? "ledgers"
+                      ? views[0]
                       : event.key === "End"
-                        ? "jobs"
-                        : view === "ledgers"
-                          ? "jobs"
-                          : "ledgers";
+                        ? views[2]
+                        : views[(views.indexOf(view) + direction + 3) % 3];
                   select({
                     view: next,
                     ledger: undefined,
@@ -934,7 +950,11 @@ export function App() {
                 }
               }}
             >
-              {view === "ledgers" ? "Ledgers" : "Jobs"}
+              {view === "batch"
+                ? "Batch"
+                : view === "ledgers"
+                  ? "Ledgers"
+                  : "Jobs"}
               {view === "jobs" && (
                 <span className="count">
                   {(tasks.data?.length ?? 0) + (jobs.data?.length ?? 0)}
@@ -943,7 +963,14 @@ export function App() {
             </button>
           ))}
         </div>
-        {selection.view === "ledgers" ? (
+        {selection.view === "batch" ? (
+          <section id="batch-view" role="tabpanel" aria-labelledby="tab-batch">
+            <BatchComposer
+              attemptId={selection.batch}
+              onSelect={(id) => select({ batch: id })}
+            />
+          </section>
+        ) : selection.view === "ledgers" ? (
           <section
             id="ledgers-view"
             role="tabpanel"

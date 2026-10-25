@@ -15,6 +15,8 @@ structure Config where
   network : Nat := 0
   root : System.FilePath := "."
   bundle : String := "default"
+  batchServiceAddress : String := ""
+  batchServiceFee : Nat := 0
   deriving Inhabited
 
 def Config.db (c : Config) := (c.data / "xl.sqlite3").toString
@@ -73,7 +75,7 @@ def rowsJson (rows : Array (Array String)) (keys : Array String) : IO Json := do
 
 /-- External tools run in a separate process group; shutdown terminates descendants. -/
 def process (c : Config) (stop : IO.Ref Bool) (cmd : String) (args : Array String)
-    (log : System.FilePath) (env : Array (String × Option String) := #[]) : IO UInt32 := do
+    (log : System.FilePath) (env : Array (String × Option String) := #[]) (timeoutMs : Nat := 0) : IO UInt32 := do
   require (!(← stop.get)) "interrupted"
   let child ← IO.Process.spawn {
     cmd := cmd
@@ -94,8 +96,12 @@ def process (c : Config) (stop : IO.Ref Bool) (cmd : String) (args : Array Strin
     file.flush) (prio := .dedicated)
   let err ← IO.asTask child.stderr.readToEnd (prio := .dedicated)
   let mut code := none
+  let started ← IO.monoMsNow
+  let mut timedOut := false
   while code.isNone do
-    if ← stop.get then child.kill
+    if (← stop.get) || (timeoutMs > 0 && (← IO.monoMsNow) - started ≥ timeoutMs) then
+      timedOut := !(← stop.get)
+      child.kill
     code ← child.tryWait
     if code.isNone then IO.sleep 100
   discard <| IO.ofExcept out.get
@@ -104,6 +110,7 @@ def process (c : Config) (stop : IO.Ref Bool) (cmd : String) (args : Array Strin
     let file ← IO.FS.Handle.mk (System.FilePath.mk (log.toString ++ ".stderr")) .write
     file.putStr stderr
   if ← stop.get then throw <| IO.userError "interrupted"
+  require (!timedOut) "proof process exceeded its time limit; diagnostics retained"
   return code.get!
 
 end XL

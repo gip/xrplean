@@ -39,6 +39,9 @@ opaque NodeKey : Type := Unit
   throw <| IO.userError "native cryptography unavailable"
 @[extern "lx_random"] opaque random (size : UInt32) : IO ByteArray :=
   throw <| IO.userError "native cryptography unavailable"
+@[extern "lx_ripemd160"] opaque ripemd160 (bytes : @& ByteArray) : IO ByteArray :=
+  throw <| IO.userError "native cryptography unavailable"
+@[extern "lx_secp_public_valid"] opaque secpPublicValid (bytes : @& ByteArray) : IO Bool := pure false
 
 def sha512Half (bytes : ByteArray) : IO ByteArray := do
   return (← sha512 bytes).extract 0 32

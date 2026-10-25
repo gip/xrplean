@@ -64,7 +64,9 @@ def configuration(args):
                 project_root=args.project_root, peer=getattr(args, 'peer', None),
                 peer_timeout=getattr(args, 'peer_timeout', 30),
                 proof_jobs=getattr(args, 'proof_jobs', 6),
-                rpc_backoff_max=getattr(args, 'rpc_backoff_max', 30))
+                rpc_backoff_max=getattr(args, 'rpc_backoff_max', 30),
+                batch_service_address=getattr(args, 'batch_service_address', ''),
+                batch_service_fee=getattr(args, 'batch_service_fee', 0))
 
 
 def stop(data):
@@ -104,6 +106,9 @@ def start(args, data):
     command += ['--peer-timeout', str(config['peer_timeout'])]
     command += ['--rpc-backoff-max', str(config['rpc_backoff_max'])]
     command += ['--proof-jobs', str(config['proof_jobs'])]
+    if config['batch_service_address']:
+        command += ['--batch-service-address', config['batch_service_address'],
+                    '--batch-service-fee', str(config['batch_service_fee'])]
     logfile = data / 'backend.log'
     with logfile.open('ab', buffering=0) as log:
         child = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL,
@@ -158,6 +163,8 @@ def main():
     parser.add_argument('--peer', help='one xrpld peer endpoint; no discovery or redirect following')
     parser.add_argument('--peer-timeout', type=int, help='seconds without useful state progress before RPC fallback')
     parser.add_argument('--proof-jobs', type=int, help='parallel Merkle hash proof workers, 1..64 (default 6)')
+    parser.add_argument('--batch-service-address', help='classic XRPL service-fee recipient')
+    parser.add_argument('--batch-service-fee', type=int, help='exact service fee per Batch, in drops')
     parser.add_argument('--network-id', type=int)
     parser.add_argument('--project-root')
     args = parser.parse_args()
@@ -176,7 +183,7 @@ def main():
                 json.loads(config_file.read_text()) if config_file.exists() else {})
         defaults = dict(listen='127.0.0.1:4001', rpc='http://127.0.0.1:5005',
                         network_id=0, project_root=str(ROOT), peer=None, peer_timeout=30,
-                        rpc_backoff_max=30, proof_jobs=6)
+                        rpc_backoff_max=30, proof_jobs=6, batch_service_address='', batch_service_fee=0)
         for key, default in defaults.items():
             if getattr(args, key) is None:
                 value = previous.get(key, default)
@@ -190,6 +197,10 @@ def main():
                 raise ValueError('RPC backoff cap must be 1..30 seconds')
             if not 1 <= args.proof_jobs <= 64:
                 raise ValueError('proof worker count must be 1..64')
+            if bool(args.batch_service_address) != bool(args.batch_service_fee):
+                raise ValueError('configure both --batch-service-address and --batch-service-fee')
+            if not 0 <= args.batch_service_fee <= 100000000000000000:
+                raise ValueError('invalid batch service fee in drops')
             args.project_root = str(Path(args.project_root).expanduser().resolve())
         if args.action == 'status':
             saved = record(data)

@@ -39,7 +39,8 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix='xl-frontend-') as tmp:
             folder = Path(tmp)
-            with backend(folder / 'data', f'http://127.0.0.1:{rpc.server_port}') as (url, _):
+            with backend(folder / 'data', f'http://127.0.0.1:{rpc.server_port}', extra_args=[
+                    '--batch-service-address','rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe','--batch-service-fee','1000']) as (url, _):
                 cli(url, 'ledger', 'get', '--index', '200', '--state', '--transport', 'rpc')
                 cli(url, 'ledger', 'get', '--index', '201', '--state', '--transport', 'rpc')
                 request(url, '/ledgers', dict(schema_version=1, stage='accepted', network_id=0,
@@ -65,6 +66,10 @@ def main():
                         result = subprocess.run(['node', str(ROOT / 'frontend/tests/real-backend.ts'), origin], cwd=ROOT, env=os.environ.copy(), capture_output=True, text=True, timeout=240)
                         assert result.returncode == 0, result.stdout + result.stderr
                         print(result.stdout.strip())
+                        batch = subprocess.run(['node',str(ROOT/'frontend/tests/real-batch.ts'),origin],cwd=ROOT,
+                                               env=os.environ.copy(),capture_output=True,text=True,timeout=120)
+                        assert batch.returncode==0,batch.stdout+batch.stderr
+                        print(batch.stdout.strip())
                     finally:
                         ui.terminate()
                         ui.wait(timeout=15)

@@ -3,11 +3,12 @@ import XLB.Worker
 import XLB.Tasks
 import XLB.Status
 import XLB.ProofSource
+import XLB.Batches
 import XL.Http
 
 open Lean LeanXRPL XL Std.Async
 
-private def usage := "XLB: xrplean backend\n  ./xl serve [--data DIR] [--listen 127.0.0.1:4001] [--rpc http://127.0.0.1:5005]\n    [--peer HOST:PORT] [--peer-timeout 30] [--rpc-backoff-max 30] [--proof-jobs 6] [--network-id 0] [--project-root DIR]\nRun from the project root. XLC is the HTTP client. See README.md."
+private def usage := "XLB: xrplean backend\n  ./xl serve [--data DIR] [--listen 127.0.0.1:4001] [--rpc http://127.0.0.1:5005]\n    [--peer HOST:PORT] [--peer-timeout 30] [--rpc-backoff-max 30] [--proof-jobs 6] [--network-id 0] [--project-root DIR]\n    [--batch-service-address rADDRESS --batch-service-fee DROPS]\nRun from the project root. XLC is the HTTP client. See README.md."
 
 private def config (args : List String) : IO Config := do
   let mut c : Config := {root := ← IO.currentDir}
@@ -43,6 +44,11 @@ private def config (args : List String) : IO Config := do
         require (network ≤ 4294967295) "network ID out of range"
         c := {c with network}
       | "--project-root" => c := {c with root := value}
+      | "--batch-service-address" => c := {c with batchServiceAddress := value}
+      | "--batch-service-fee" =>
+        let some fee := value.toNat? | throw <| IO.userError "invalid batch service fee"
+        require (fee > 0 && fee ≤ BatchPolicy.maxDrops) "batch service fee must be positive integer drops within XRP supply"
+        c := {c with batchServiceFee := fee}
       | _ => throw <| IO.userError s!"unknown option {flag}"
       rest := tail
     | _ => throw <| IO.userError usage
@@ -53,6 +59,19 @@ private def config (args : List String) : IO Config := do
 
 private partial def handler (cache : XLB.Status.Cache) (c : Config) (stop : IO.Ref Bool) (request : Http.Request) (bundleOnly : Bool := false) : IO Http.Response := do
   try
+    -- Batch attempts are network-wide, independent of ledger bundles.
+    if !bundleOnly then
+      match request.method,request.path.splitOn "/" with
+      | "GET",["","batches"] => return ⟨200,← XLB.Batches.listAttempts c,none⟩
+      | "GET",["","batches","policy"] => return ⟨200,← XLB.Batches.policy c,none⟩
+      | "POST",["","batches","prepare"] => return ⟨202,← XLB.Batches.submit c request.body,none⟩
+      | "GET",["","batches",raw] =>
+        let some id := raw.toNat? | throw <| IO.userError "invalid batch attempt ID"
+        return ⟨200,← XLB.Batches.getAttempt c id,none⟩
+      | "GET",["","batches",raw,"artifacts",name] =>
+        let some id := raw.toNat? | throw <| IO.userError "invalid batch attempt ID"
+        return ⟨200,← XLB.Batches.artifact c id name,none⟩
+      | _,_ => pure ()
     match request.path.splitOn "/" with
     | "" :: "bundles" :: name :: tail =>
       require (validBundle name) "invalid bundle name"
@@ -135,6 +154,7 @@ private def serve (c : Config) : IO UInt32 := do
   try
     XLB.Store.init c
     XLB.Tasks.init c
+    XLB.Batches.init c
     require (← NodeStore.nudbAvailable) "XLB requires NuDB support; rebuild with NuDB and Boost development files"
     let stop ← IO.mkRef false
     let statusCache ← XLB.Status.new
@@ -144,9 +164,10 @@ private def serve (c : Config) : IO UInt32 := do
     let interruptTask ← interrupt.wait
     let terminateTask ← terminate.wait
     let worker ← IO.asTask (XLB.Worker.run c stop) (prio := .dedicated)
+    let batchWorker ← IO.asTask (XLB.Batches.run c stop) (prio := .dedicated)
     let monitor : Async Unit := do
       while !(← stop.get) do
-        if (← IO.hasFinished interruptTask) || (← IO.hasFinished terminateTask) || (← IO.hasFinished worker) then
+        if (← IO.hasFinished interruptTask) || (← IO.hasFinished terminateTask) || (← IO.hasFinished worker) || (← IO.hasFinished batchWorker) then
           stop.set true
         else sleep (.ofInt 100)
     let acquisition : Async Unit := do
@@ -160,10 +181,14 @@ private def serve (c : Config) : IO UInt32 := do
       interrupt.stop
       terminate.stop
     IO.ofExcept worker.get
+    IO.ofExcept batchWorker.get
     return 0
   finally XL.unlock fd
 
 def main (args : List String) : IO UInt32 := do
   if args == ["--help"] || args == ["-h"] then IO.println usage; return 0
-  try serve (← config args)
+  try
+    match args with
+    | ["--verify-batch-artifacts",dir] => IO.println (← XLB.Batches.verifyArtifacts dir).pretty; return 0
+    | _ => serve (← config args)
   catch error => (← IO.getStderr).putStrLn error.toString; return 1

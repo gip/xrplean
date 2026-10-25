@@ -31,6 +31,26 @@ test("proxy route and upstream policy cannot select arbitrary hosts or files", (
   assert.equal(allowedRoute("POST", "/bundles/main/jobs/1/cancel"), true);
   assert.equal(allowedRoute("GET", "/bundles/main/jobs/1/cancel"), false);
   for (const path of [
+    "/batches",
+    "/batches/policy",
+    "/batches/1",
+    "/batches/1/artifacts/Certificate.lean",
+    "/batches/1/artifacts/kernel.log.stderr",
+  ]) {
+    assert.equal(allowedRoute("GET", path), true);
+    assert.equal(allowedRoute("POST", path), false);
+  }
+  assert.equal(allowedRoute("POST", "/batches/prepare"), true);
+  for (const path of [
+    "/batches/0",
+    "/bundles/main/batches/policy",
+    "/batches/1/artifacts/../../keys",
+    "/batches/1/artifacts/%2e%2e",
+    "/batches/1/artifacts/secret",
+    "/batches/1?file=secret",
+  ])
+    assert.equal(allowedRoute("GET", path), false);
+  for (const path of [
     "/proofs/merkle",
     "/bundles/main/proofs/payments",
     "/bundles/main/jobs/1/verifications/2/proof",

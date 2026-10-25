@@ -139,7 +139,7 @@ private def replay (c : Config) (stop : IO.Ref Bool) (j : Json) (b : Basis)
   finally
     for store in backing do NodeStore.dispose store
 
-private def checkAxioms (text : String) : IO Unit := do
+def checkAxioms (text : String) : IO Unit := do
   require ((text.splitOn "sorryAx").length == 1 && (text.splitOn "Lean.ofReduceBool").length == 1) "unexpected proof axiom"
   let mut found := false
   for line in text.splitOn "\n" do

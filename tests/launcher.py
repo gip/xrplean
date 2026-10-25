@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from integration import ROOT, free_port
+from integration import ROOT, free_port, request
 
 XL = ROOT / 'xl'
 
@@ -85,6 +85,22 @@ def main():
             run('start', '--data', data)
             assert json.loads((data / 'backend-process.json').read_text())['config'] == third['config']
             assert json.loads(run('--backend', url, 'health').stdout)['network_id'] == 1
+            run('stop', '--data', data)
+            # New Batch settings are optional, saved together, and can be disabled.
+            service = 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe'
+            run('start', '--data', data, '--batch-service-address', service, code=1)
+            run('start', '--data', data, '--batch-service-address', service, '--batch-service-fee', '1000')
+            configured = json.loads((data / 'backend-process.json').read_text())
+            assert configured['config']['batch_service_address'] == service
+            assert configured['config']['batch_service_fee'] == 1000
+            assert request(url, '/batches/policy')['enabled']
+            run('start', '--data', data)
+            assert json.loads((data / 'backend-process.json').read_text())['pid'] == configured['pid']
+            run('stop', '--data', data)
+            run('start', '--data', data)
+            assert request(url, '/batches/policy')['policy']['service_address'] == service
+            run('start', '--data', data, '--batch-service-address', '', '--batch-service-fee', '0')
+            assert not request(url, '/batches/policy')['enabled']
             run('stop', '--data', data)
             # A stale ownership record must not cause a signal to an unrelated process.
             (data / 'backend-process.json').write_text(json.dumps(dict(pid=os.getpid(), identity='stale', url=url)))

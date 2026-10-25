@@ -43,7 +43,9 @@
     "LeanXRPL/StateTree.lean": "Additive appendSorted snapshot builder and transactional checkpoint callback. Existing replay, encoding, authenticated path, and proof definitions are unchanged.",
     "LeanXRPL/NodeStore.lean": "Add generic state view and acquisition-scope persistence declarations. XRPL policy and verification remain in Lean.",
     "native/store.c": "Add generic legacy state views and scoped acquisition metadata/frontiers/counters in one shared payload catalog via node_view.inc and node_scope.inc. Scoped/global counters share flush-before-commit durability; scoped writers allow retained readers during passive WAL checkpointing.",
-    "tools/generate_merkle_certificate.py": "Ledger-specific namespaces and case-normalized commitments; hash lemmas evaluate SHA512Fast and transfer results through its proved half_eq theorem to the unchanged KernelMerkle.nodeHash statement. Six bounded parallel hash workers by default; receipts record evaluator and worker count."
+    "tools/generate_merkle_certificate.py": "Ledger-specific namespaces and case-normalized commitments; hash lemmas evaluate SHA512Fast and transfer results through its proved half_eq theorem to the unchanged KernelMerkle.nodeHash statement. Six bounded parallel hash workers by default; receipts record evaluator and worker count.",
+    "LeanXRPL/Native.lean": "Add RIPEMD160 and secp256k1 public-point validation declarations for unsigned Batch input consistency checks; neither primitive enters the pure kernel certificate.",
+    "native/bridge.c": "Add generic OpenSSL RIPEMD160 and compressed secp256k1 public-point validation bridges; XRPL account derivation and Batch policy remain in Lean."
   },
   "development_emulator": {
     "pins": "tools/speculos-lock.json",

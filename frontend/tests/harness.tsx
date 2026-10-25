@@ -10,7 +10,11 @@ function Harness() {
     <IdentityContext.Provider
       value={{
         connected,
-        address: connected ? "rTESTbrowserFixture" : undefined,
+        address: connected
+          ? new URLSearchParams(location.search).get("batchFixture") === "1"
+            ? "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"
+            : "rTESTbrowserFixture"
+          : undefined,
         provider: "Test fixture",
         network: "mainnet",
         connecting: false,

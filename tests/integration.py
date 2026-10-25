@@ -48,9 +48,10 @@ def request(url, path, value=None, status=200):
 
 @contextmanager
 def backend(directory, rpc=None, network=0, expected_exit=0, env=None, peer=None, peer_timeout=None,
-            rpc_backoff_max=30, proof_jobs=None):
+            rpc_backoff_max=30, proof_jobs=None, extra_args=()):
     port = free_port()
     args = [str(XLB), '--data', str(directory), '--listen', f'127.0.0.1:{port}']
+    args += list(extra_args)
     args += ['--rpc-backoff-max', str(rpc_backoff_max)]
     if proof_jobs is not None:
         args += ['--proof-jobs', str(proof_jobs)]

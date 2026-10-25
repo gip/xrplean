@@ -24,6 +24,15 @@ export function upstreamURL(value: string) {
   return url;
 }
 export function allowedRoute(method: string, path: string) {
+  if (
+    method === "GET" &&
+    (/^\/batches(?:\/policy|\/[1-9]\d*)?$/.test(path) ||
+      /^\/batches\/[1-9]\d*\/artifacts\/(?:request\.json|transaction\.json|unsigned\.hex|policy\.json|Certificate\.lean|BatchPolicy\.lean|lean-toolchain|kernel\.log(?:\.stderr)?|binding\.json|report\.json|manifest\.json)$/.test(
+        path,
+      ))
+  )
+    return true;
+  if (method === "POST" && path === "/batches/prepare") return true;
   if (method === "GET" && /^\/(health|status|bundles)$/.test(path)) return true;
   const route = path.replace(/^\/bundles\/[A-Za-z0-9_-]{1,64}(?=\/)/, "");
   return method === "GET"

@@ -635,3 +635,77 @@ They run with Python isolation enabled so environment optimization cannot disabl
 their assertion-based input checks. StateTree has an additive sorted snapshot
 builder; proof definitions, authenticated path logic and Payment coverage are
 unchanged from the imported files.
+
+
+## Unsigned Batch preparation
+
+`LeanXRPL/BatchPolicy.lean` defines the bounded policy and canonical serializer as
+pure reducible Lean definitions. `Certified policy batch raw` states both `Valid`
+and equality of the exact natural-byte list to that serializer. The serializer
+fixes Batch/Payment types, all-or-nothing/inner flags, shared source, zero inner
+fees, empty inner keys, and a final service Payment. Validity checks classic
+AccountID lengths, compressed-key shape, positive bounded XRP amounts, one to
+seven user Payments, distinct positive uint32 sequences, ledger expiry, no user
+Payment to the service recipient, and total debit within XRP supply. It is a
+structure/policy theorem, not an execution-semantics or authorization theorem.
+NetworkID is emitted only above 1024, following XRPL rules. Proofs on low-ID
+networks do not supply cross-chain replay protection omitted by that protocol.
+
+XLB configures `--batch-service-address` and `--batch-service-fee` together. Neither
+means disabled; partial or invalid configuration fails startup. The managed
+launcher saves both. A source key must be a valid compressed secp256k1 point and
+its SHA256/RIPEMD160 AccountID must match the supplied source. Address checksum,
+curve, account derivation, and hash checks are native cryptographic input/binding
+checks and are explicitly outside the kernel theorem. No private keys are used.
+
+The global, network-scoped API (not bundle-prefixed) adds:
+
+| Method | Route | Contract |
+|---|---|---|
+| GET | `/batches/policy` | availability, public policy, SHA-256 policy digest |
+| GET | `/batches` | latest 50 attempt IDs, statuses, creation times |
+| POST | `/batches/prepare` | strict input; HTTP 202 after durable queue insertion |
+| GET | `/batches/ID` | frozen preparation, status, report, error |
+| GET | `/batches/ID/artifacts/NAME` | allowlisted UTF-8 content, name, SHA-256 |
+
+Prepare accepts `account`, `public_key`, numeric `sequence`, `service_sequence`,
+`last_ledger_sequence`, decimal-string `network_fee_drops`, and `payments` containing
+only `destination`, decimal-string `amount_drops`, and numeric `sequence`. Optional
+`policy_digest` must match the current policy; the UI always sends the reviewed
+digest. Unknown fields and unsupported transaction features fail before queuing.
+An explicit new request always creates a new ID, even for identical input.
+
+The additive `batch_attempts` table is independent of ledger exports and historical
+verification jobs. It stores the immutable request/prepared transaction, network,
+status, report, error, and timestamps. One dedicated worker runs at most one
+certificate process; at most eight queued/running attempts are admitted. Status is
+`queued`, `running`, `kernel_checked`, `failed`, or `interrupted`. Startup marks
+unfinished work interrupted without retrying it, including work on other configured
+networks. Completed history is preserved. Changing service configuration cannot
+change a queued attempt's frozen policy.
+
+The worker creates `data/batch-attempts/ID` only if absent. It writes original
+request, transaction, unsigned bytes, policy, generated certificate, policy source,
+and toolchain before invoking the pinned Lean environment. Compilation is bounded
+by 120 seconds, 2048 MiB of Lean's memory accounting, and a fixed heartbeat budget.
+Success additionally requires the shared axiom audit and reconstruction/comparison
+of exact certificate literals and exported bytes/JSON/digests. Policy source and
+compiled module hashes must remain stable during compilation. A manifest records
+artifact and module digests; it is an integrity record, not a signature. Failed
+attempts keep diagnostics and never receive `kernel_checked`.
+
+Artifacts are served as JSON `{name, content, sha256}` through an explicit filename
+allowlist, never an arbitrary path. The frontend checks the returned digest before
+constructing a download. `tools/verify_batch_certificate.py` independently checks
+artifact hashes and raw literals, rejects any source outside the generated data-only
+template, invokes the read-only `xlb --verify-batch-artifacts DIR` mode to reconstruct
+policy/address/JSON/byte relationships in Lean, and recompiles/audits using the
+original approved checkout. Its optional `--policy-digest` pins an independently
+reviewed policy; an unsigned manifest alone does not establish policy approval.
+
+The Batch tab polls an existing attempt by URL ID, offers bounded history for
+recovery after an uncertain response, and never retries a mutation. Current-draft
+association includes wallet address, all form values, and reviewed policy digest.
+Editing, disconnecting, or restoring an earlier attempt labels its result as a
+previous preparation. Identity is not authenticated backend login, and no device
+signing capabilities or submission routes are added.

@@ -1069,3 +1069,106 @@ dialog:has(.proof-viewer),
 .ledger-popover:has(.proof-viewer) {
   width: min(760px, calc(100% - 32px));
 }
+
+.batch-composer {
+  max-width: 980px;
+}
+.batch-composer h2 {
+  font-size: 16px;
+  margin: 18px 0 12px;
+}
+.batch-policy,
+.batch-result {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  margin: 18px 0;
+}
+.batch-policy code,
+.batch-result code {
+  overflow-wrap: anywhere;
+}
+.batch-composer label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+}
+.batch-composer input,
+.batch-composer select {
+  min-width: 0;
+  width: 100%;
+}
+.batch-payment {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) 1fr 1fr auto;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  padding: 14px;
+}
+.batch-composer legend {
+  font-size: 12px;
+  padding: 0 5px;
+}
+.batch-advanced {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.batch-advanced label:first-of-type {
+  grid-column: 1 / -1;
+}
+.batch-history {
+  margin: 24px 0;
+}
+.batch-result dl {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 12px;
+}
+.batch-result dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.batch-result pre {
+  max-height: 450px;
+  overflow: auto;
+  font-size: 12px;
+}
+.batch-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.batch-downloads button {
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .batch-payment,
+  .batch-advanced {
+    grid-template-columns: 1fr;
+  }
+}
+
+.batch-payment-summary {
+  overflow-x: auto;
+}
+.batch-payment-summary table {
+  width: 100%;
+  font-size: 12px;
+}
+.batch-payment-summary th,
+.batch-payment-summary td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
